@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Product;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class ProductController extends Controller
 {
@@ -23,7 +24,7 @@ class ProductController extends Controller
                 'data' => $products
             ], 200);
 
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Product Fetch Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
@@ -37,7 +38,7 @@ class ProductController extends Controller
      */
     public function store(Request $request)
     {
-      $request->validate([
+        $request->validate([
             'name' => 'required|string|max:255',
             'category_id' => 'required|exists:categories,id',
             'unit_id' => 'required|exists:units,id',
@@ -77,7 +78,7 @@ class ProductController extends Controller
                 'data' => $product
             ], 201);
 
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Product Create Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
@@ -99,14 +100,12 @@ class ProductController extends Controller
                 'message' => 'Product retrieved successfully',
                 'data' => $product
             ]);
-        } catch (\exception $e) {
-            Log::error('Product Fetch Error: ' . $e->getMessage());
+        } catch (\Exception $e) {
             return response()->json([
                 'status' => false,
                 'message' => 'Product not found.'
             ], 404);
         }
-
     }
 
     /**
@@ -117,23 +116,20 @@ class ProductController extends Controller
         try {
             $product = Product::find($id);
 
-           $request->validate([
+            if (!$product) {
+                return response()->json(['status' => false, 'message' => 'Product not found'], 404);
+            }
+
+            $request->validate([
                 'name' => 'required|string|max:255',
                 'category_id' => 'required|exists:categories,id',
                 'unit_id' => 'required|exists:units,id',
                 'cost_price' => 'numeric',
                 'selling_price' => 'numeric',
-                'image' => 'nullable|image|max:2048',
+                'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             ]);
 
-            $imagePath = $product->image;
-            if ($request->hasFile('image')) {
-                if ($product->image && Storage::disk('public')->exists($product->image)) {
-                    Storage::disk('public')->delete($product->image);
-                }
-                $imagePath = $request->file('image')->store('products', 'public');
-            }
-            $product->update([
+            $data = [
                 'name' => $request->name,
                 'slug' => Str::slug($request->name) . '-' . Str::random(4),
                 'category_id' => $request->category_id,
@@ -143,15 +139,24 @@ class ProductController extends Controller
                 'selling_price' => $request->selling_price,
                 'alert_quantity' => $request->alert_quantity,
                 'description' => $request->description,
-                'image' => $imagePath
-            ]);
+            ];
 
-           return response()->json([
+            if ($request->hasFile('image')) {
+                if ($product->image && Storage::disk('public')->exists($product->image)) {
+                    Storage::disk('public')->delete($product->image);
+                }
+                $data['image'] = $request->file('image')->store('products', 'public');
+            }
+
+            $product->update($data);
+
+            return response()->json([
                 'status' => true,
                 'message' => 'Product updated successfully',
                 'data' => $product
             ]);
-        } catch (\exception $e) {
+
+        } catch (\Exception $e) {
             Log::error('Product Update Error: '. $e->getMessage());
             return response()->json([
                 'status' => false,
@@ -182,7 +187,7 @@ class ProductController extends Controller
                 'message' => 'Product deleted successfully'
             ]);
 
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Product Delete Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,

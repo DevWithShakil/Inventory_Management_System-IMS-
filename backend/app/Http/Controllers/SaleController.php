@@ -89,7 +89,7 @@ class SaleController extends Controller
                 'due_amount' => $dueAmount,
                 'payment_method' => $request->payment_method,
                 'payment_status' => $paymentStatus,
-                'created_by' => 1,
+                'created_by' => auth()->id(),
             ]);
 
             foreach ($request->items as $item) {

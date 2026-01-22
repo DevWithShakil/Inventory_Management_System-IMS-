@@ -70,7 +70,7 @@ class PurchaseController extends Controller
             'tax' => $tax,
             'grand_total' => $grandTotal,
             'status' => 'completed',
-            'created_by' => 1,
+            'created_by' => auth()->id(),
         ]);
 
         foreach ($request->items as $item) {
