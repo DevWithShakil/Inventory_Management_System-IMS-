@@ -9,6 +9,7 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SupplierController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\PurchaseController;
+use App\Http\Controllers\SaleController;
 
 
 Route::apiResource('categories', CategoryController::class);
@@ -18,6 +19,8 @@ Route::apiResource('products', ProductController::class);
 Route::apiResource('suppliers', SupplierController::class);
 Route::apiResource('customers', CustomerController::class);
 Route::apiResource('purchases', PurchaseController::class);
+Route::apiResource('sales', SaleController::class);
+
 
 
 
