@@ -42,7 +42,7 @@ class SupplierController extends Controller
                 'data' => $supplier
             ], 201);
 
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Supplier Creation Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
@@ -64,7 +64,7 @@ class SupplierController extends Controller
                 'message' => 'Supplier retrieved successfully',
                 'data' => $supplier
             ]);
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Supplier Fetch Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
@@ -97,7 +97,7 @@ class SupplierController extends Controller
                 'message' => 'Supplier updated successfully',
                 'data' => $supplier
             ]);
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Supplier Update Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
@@ -124,7 +124,7 @@ class SupplierController extends Controller
                 'message' => 'Supplier deleted successfully'
             ]);
 
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Supplier Deletion Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,

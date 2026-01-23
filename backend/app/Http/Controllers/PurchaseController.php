@@ -25,7 +25,7 @@ class PurchaseController extends Controller
                 'message' => 'Purchases retrieved successfully',
                 'data' => $purchase
             ]);
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Purchase Fetch Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,

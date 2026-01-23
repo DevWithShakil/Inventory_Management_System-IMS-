@@ -43,7 +43,7 @@ class BrandController extends Controller
                 'data' => $brand
             ], 201);
 
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Brand Create Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
@@ -85,7 +85,7 @@ class BrandController extends Controller
                 'status' => true,
                 'message' => 'Brand deleted successfully'
             ]);
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Brand Delete Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,

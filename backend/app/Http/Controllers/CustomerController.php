@@ -38,7 +38,7 @@ class CustomerController extends Controller
                 'message' => 'Customer created successfully',
                 'data' => $customer
             ]);
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Error creating customer: ' . $e->getMessage());
             return response()->json([
                 'status' => 'error',
@@ -61,7 +61,7 @@ class CustomerController extends Controller
                 'message' => 'Customer retrieved successfully',
                 'data' => $customer
             ]);
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Customer Fetch Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
@@ -94,7 +94,7 @@ class CustomerController extends Controller
                 'message' => 'Customer updated successfully',
                 'data' => $customer
             ]);
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Customer Update Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
@@ -121,7 +121,7 @@ class CustomerController extends Controller
                 'message' => 'Customer deleted successfully'
             ]);
 
-        } catch (\exception $e) {
+        } catch (\Exception $e) {
             Log::error('Customer Deletion Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
