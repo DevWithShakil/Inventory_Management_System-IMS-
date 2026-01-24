@@ -37,55 +37,55 @@ class ProductController extends Controller
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
-    {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'category_id' => 'required|exists:categories,id',
-            'unit_id' => 'required|exists:units,id',
-            'brand_id' => 'nullable|exists:brands,id',
-            'cost_price' => 'required|numeric|min:0',
-            'selling_price' => 'required|numeric|min:0',
-            'alert_quantity' => 'nullable|integer',
-            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+{
+    $request->validate([
+        'name'           => 'required|string|max:255',
+        'category_id'    => 'required|exists:categories,id',
+        'unit_id'        => 'required|exists:units,id',
+        'brand_id'       => 'nullable|exists:brands,id',
+        'purchase_price' => 'required|numeric|min:0',
+        'selling_price'  => 'required|numeric|min:0',
+        'stock_quantity' => 'nullable|integer|min:0',
+        'alert_quantity' => 'nullable|integer',
+        'sku'            => 'required|string|unique:products,sku',
+        'image'          => 'nullable|image|mimes:jpeg,png,jpg,gif,webp|max:2048',
+    ]);
+
+    try {
+        $imagePath = null;
+        if ($request->hasFile('image')) {
+            $imagePath = $request->file('image')->store('products', 'public');
+        }
+
+        $product = Product::create([
+            'name'           => $request->name,
+            'slug'           => Str::slug($request->name) . '-' . Str::random(4),
+            'sku'            => $request->sku,
+            'category_id'    => $request->category_id,
+            'brand_id'       => $request->brand_id,
+            'unit_id'        => $request->unit_id,
+            'cost_price'     => $request->purchase_price,
+            'selling_price'  => $request->selling_price,
+            'stock_quantity' => $request->stock_quantity ?? 0,
+            'alert_quantity' => $request->alert_quantity ?? 5,
+            'image'          => $imagePath,
+            'description'    => $request->description
         ]);
 
-        try {
-            $imagePath = null;
-            if ($request->hasFile('image')) {
-                $imagePath = $request->file('image')->store('products', 'public');
-            }
+        return response()->json([
+            'status'  => true,
+            'message' => 'Product created successfully',
+            'data'    => $product
+        ], 201);
 
-            $sku = 'PRD-' . strtoupper(Str::random(8));
-
-            $product = Product::create([
-                'name' => $request->name,
-                'slug' => Str::slug($request->name) . '-' . Str::random(4),
-                'sku' => $sku,
-                'category_id' => $request->category_id,
-                'brand_id' => $request->brand_id,
-                'unit_id' => $request->unit_id,
-                'cost_price' => $request->cost_price,
-                'selling_price' => $request->selling_price,
-                'stock_quantity' => 0,
-                'alert_quantity' => $request->alert_quantity ?? 5,
-                'image' => $imagePath,
-                'description' => $request->description
-            ]);
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Product created successfully',
-                'data' => $product
-            ], 201);
-
-        } catch (\Exception $e) {
-            Log::error('Product Create Error: ' . $e->getMessage());
-            return response()->json([
-                'status' => false,
-                'message' => 'Failed to create product.'
-            ], 500);
-        }
+    } catch (\Exception $e) {
+        Log::error('Product Create Error: ' . $e->getMessage());
+        return response()->json([
+            'status'  => false,
+            'message' => 'Failed to create product.'
+        ], 500);
     }
+}
 
     /**
      * Display the specified resource.
