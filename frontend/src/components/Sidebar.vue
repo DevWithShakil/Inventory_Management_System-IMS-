@@ -29,7 +29,7 @@ const menuItems = computed(() => {
       icon: ShoppingBagIcon,
       roles: ["staff", "admin"],
     },
-    { name: "Inventory", path: "/products", icon: CubeIcon, roles: ["admin"] },
+    { name: "Inventory", path: "/inventory", icon: CubeIcon, roles: ["admin"] },
     {
       name: "Sales Report",
       path: "/sales",
