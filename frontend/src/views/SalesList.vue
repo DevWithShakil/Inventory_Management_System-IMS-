@@ -1,7 +1,9 @@
 <script setup>
 import { ref, onMounted, watch } from "vue";
 import axios from "../axios";
-import InvoiceModal from "../components/InvoiceModal.vue"; // ইনভয়েস মডাল ইম্পোর্ট
+import InvoiceModal from "../components/InvoiceModal.vue";
+import Swal from "sweetalert2"; // Ensure sweetalert2 is installed
+
 import {
   MagnifyingGlassIcon,
   FunnelIcon,
@@ -9,7 +11,6 @@ import {
   EyeIcon,
   TrashIcon,
   PlusIcon,
-  CalendarDaysIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ArrowPathIcon,
@@ -34,56 +35,65 @@ const filters = ref({
   status: "",
 });
 
-// --- Helpers ---
+// --- SweetAlert Toast Configuration ---
+const Toast = Swal.mixin({
+  toast: true,
+  position: "top-end",
+  showConfirmButton: false,
+  timer: 3000,
+  timerProgressBar: true,
+  didOpen: (toast) => {
+    toast.onmouseenter = Swal.stopTimer;
+    toast.onmouseleave = Swal.resumeTimer;
+  },
+});
 
-// Status Color Logic
+// --- Helpers ---
 const getStatusColor = (status) => {
   if (!status) return "bg-gray-50 text-gray-700 border-gray-200";
   const s = status.toLowerCase();
-
   if (s === "paid")
     return "bg-emerald-50 text-emerald-700 border-emerald-200 ring-1 ring-emerald-600/20";
   if (s === "partial")
     return "bg-amber-50 text-amber-700 border-amber-200 ring-1 ring-amber-600/20";
   if (s === "due" || s === "unpaid")
     return "bg-red-50 text-red-700 border-red-200 ring-1 ring-red-600/20";
-
   return "bg-gray-50 text-gray-700 border-gray-200";
 };
 
 // --- API Actions ---
 
-// Fetch Sales List
+// 1. Fetch Sales List
 const fetchSales = async (page = 1) => {
   isLoading.value = true;
   try {
     const response = await axios.get(`/sales`, {
-      params: {
-        page: page,
-        ...filters.value,
-      },
+      params: { page: page, ...filters.value },
     });
-
     if (response.data.status) {
       sales.value = response.data.data.data;
       pagination.value = response.data.data;
     }
   } catch (error) {
     console.error("Failed to load sales:", error);
+    Toast.fire({
+      icon: "error",
+      title: "Failed to load sales data",
+    });
   } finally {
     isLoading.value = false;
   }
 };
 
-// Open Invoice Modal
+// 2. Open Invoice Modal (View & Print)
 const openInvoice = async (id) => {
-  isInvoiceLoading.value = true; // (Optional: You can show a global loader if needed)
+  isInvoiceLoading.value = true;
   try {
     const response = await axios.get(`/sales/${id}`);
     if (response.data.status) {
       selectedSale.value = response.data.data;
 
-      // Due calculation fallback (if backend doesn't send it)
+      // Calculate due if missing
       if (selectedSale.value.grand_total && selectedSale.value.paid_amount) {
         selectedSale.value.due_amount =
           selectedSale.value.grand_total - selectedSale.value.paid_amount;
@@ -92,21 +102,105 @@ const openInvoice = async (id) => {
       showInvoiceModal.value = true;
     }
   } catch (error) {
-    console.error("Error fetching invoice:", error);
-    alert("Unable to load invoice details.");
+    Toast.fire({
+      icon: "error",
+      title: "Unable to load invoice details",
+    });
   } finally {
     isInvoiceLoading.value = false;
   }
 };
 
-// Reset Filters
+// 3. Delete Sale Logic
+const deleteSale = async (id) => {
+  const result = await Swal.fire({
+    title: "Are you sure?",
+    text: "You won't be able to revert this!",
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonColor: "#4f46e5",
+    cancelButtonColor: "#ef4444",
+    confirmButtonText: "Yes, delete it!",
+  });
+
+  if (result.isConfirmed) {
+    try {
+      const response = await axios.delete(`/sales/${id}`);
+      if (response.data.status) {
+        Toast.fire({
+          icon: "success",
+          title: "Sale deleted successfully",
+        });
+        fetchSales(pagination.value.current_page || 1);
+      }
+    } catch (error) {
+      // Backend constraint error handling
+      Swal.fire({
+        icon: "error",
+        title: "Deletion Failed",
+        text: "Cannot delete this sale because it has related items or payments. Please contact admin.",
+      });
+    }
+  }
+};
+
+// 4. Export to CSV Logic
+const exportToCSV = () => {
+  if (sales.value.length === 0) {
+    Swal.fire({
+      icon: "info",
+      title: "No Data",
+      text: "There is no data to export!",
+    });
+    return;
+  }
+
+  const headers = [
+    "Invoice ID",
+    "Date",
+    "Customer Name",
+    "Phone",
+    "Total Amount",
+    "Paid",
+    "Due",
+    "Status",
+  ];
+
+  const rows = sales.value.map((sale) => {
+    return [
+      `"#INV-${String(sale.id).padStart(4, "0")}"`,
+      `"${new Date(sale.created_at).toLocaleDateString()}"`,
+      `"${sale.customer?.name || "Walk-in"}"`,
+      `"${sale.customer?.phone || "N/A"}"`,
+      sale.grand_total,
+      sale.paid_amount,
+      sale.due_amount,
+      `"${sale.payment_status}"`,
+    ].join(",");
+  });
+
+  const csvContent = [headers.join(","), ...rows].join("\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute(
+    "download",
+    `Sales_Report_${new Date().toISOString().split("T")[0]}.csv`,
+  );
+  link.style.visibility = "hidden";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+// 5. Reset Filters
 const resetFilters = () => {
   filters.value = { search: "", start_date: "", end_date: "", status: "" };
   fetchSales(1);
 };
 
 // --- Watchers ---
-
 let timeout = null;
 watch(
   () => filters.value.search,
@@ -146,10 +240,11 @@ onMounted(() => fetchSales());
       </div>
       <div class="flex gap-3">
         <button
+          @click="exportToCSV"
           class="hidden sm:flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition shadow-sm text-sm font-medium"
         >
           <DocumentArrowDownIcon class="w-5 h-5" />
-          <span>Export</span>
+          <span>Export CSV</span>
         </button>
 
         <router-link
@@ -302,7 +397,7 @@ onMounted(() => fetchSales());
                 <span
                   class="text-sm font-bold text-indigo-600 dark:text-indigo-400 font-mono"
                 >
-                  #{{ String(sale.id).padStart(4, "0") }}
+                  #INV-{{ String(sale.id).padStart(4, "0") }}
                 </span>
               </td>
               <td class="px-6 py-4 whitespace-nowrap">
@@ -350,7 +445,9 @@ onMounted(() => fetchSales());
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-center">
                 <span
-                  :class="`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(sale.payment_status)}`"
+                  :class="`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${getStatusColor(
+                    sale.payment_status,
+                  )}`"
                 >
                   {{ sale.payment_status }}
                 </span>
@@ -366,6 +463,7 @@ onMounted(() => fetchSales());
                   </button>
 
                   <button
+                    @click="openInvoice(sale.id)"
                     class="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition"
                     title="Print"
                   >
@@ -373,6 +471,7 @@ onMounted(() => fetchSales());
                   </button>
 
                   <button
+                    @click="deleteSale(sale.id)"
                     class="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition"
                     title="Delete"
                   >

@@ -71,7 +71,7 @@ const printInvoice = () => {
           <div class="text-right">
             <h2 class="text-xl font-bold text-gray-800">INVOICE</h2>
             <p class="text-sm text-gray-600 font-mono mt-1">
-              #ORD-{{ String(sale?.id).padStart(4, "0") }}
+              #INV-{{ String(sale?.id).padStart(4, "0") }}
             </p>
             <p class="text-xs text-gray-500 mt-1">
               Date: {{ new Date(sale?.created_at).toLocaleDateString() }}
