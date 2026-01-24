@@ -138,23 +138,26 @@ class SaleController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(string $id)
+    /**
+     * Display the specified resource.
+     */
+    public function show($id)
     {
         try {
-            $sale = Sale::with(['customer', 'items.product', 'creator'])->find($id);
+            $sale = Sale::with(['customer', 'sale_items.product', 'creator'])
+                ->find($id);
 
             if (!$sale) {
-                return response()->json(['status' => false, 'message' => 'Sale not found'], 404);
+                return response()->json(['status' => false, 'message' => 'Invoice not found'], 404);
             }
 
             return response()->json([
                 'status' => true,
-                'message' => 'Sale details retrieved successfully',
                 'data' => $sale
             ]);
 
         } catch (\Exception $e) {
-            return response()->json(['status' => false, 'message' => 'Error fetching details'], 500);
+            return response()->json(['status' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
