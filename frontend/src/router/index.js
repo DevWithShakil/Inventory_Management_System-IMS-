@@ -5,6 +5,7 @@ import MainLayout from '../layouts/MainLayout.vue';
 import SalesList from '../views/SalesList.vue';
 import PoseConsole from '../views/PoseConsole.vue';
 import Inventory from '../views/Inventory.vue';
+import Customers from '../views/Customers.vue';
 
 const routes = [
     {
@@ -37,6 +38,11 @@ const routes = [
                 path: '/inventory',
                 name: 'Inventory',
                 component: Inventory
+            },
+            {
+                path: '/customers',
+                name: 'Customers',
+                component: Customers
             },
 
         ]
