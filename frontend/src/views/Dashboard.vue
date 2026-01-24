@@ -33,7 +33,7 @@ const dashboardData = ref({
 const fetchDashboardData = async () => {
   isLoading.value = true;
   try {
-    // রেঞ্জ প্যারামিটার সহ রিকোয়েস্ট পাঠানো হচ্ছে
+    // রেঞ্জ প্যারামিটার সহ রিকোয়েস্ট পাঠানো হচ্ছে
     const response = await axios.get(
       `/dashboard/overview?range=${selectedRange.value}`,
     );
@@ -254,8 +254,9 @@ const series = ref([]);
             <router-link
               to="/sales"
               class="text-sm font-medium text-indigo-600 hover:text-indigo-500"
-              >View All</router-link
             >
+              View All
+            </router-link>
           </div>
 
           <div v-if="isLoading" class="space-y-4">

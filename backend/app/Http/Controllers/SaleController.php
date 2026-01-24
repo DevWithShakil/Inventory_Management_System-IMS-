@@ -16,25 +16,36 @@ class SaleController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
-    {
-        try {
-            $sales = Sale::with(['customer', 'items.product', 'creator'])->latest()->get();
+   public function index(Request $request)
+{
+    $query = Sale::with('customer')->latest();
 
-            return response()->json([
-                'status' => true,
-                'message' => 'Sales retrieved successfully',
-                'data' => $sales
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Sale Fetch Error: ' . $e->getMessage());
-            return response()->json([
-                'status' => false,
-                'message' => 'Sale not found.'
-            ], 500);
-        }
+    if ($request->search) {
+        $search = $request->search;
+        $query->where(function($q) use ($search) {
+            $q->where('id', 'like', "%$search%")
+              ->orWhereHas('customer', function($c) use ($search) {
+                  $c->where('name', 'like', "%$search%")
+                    ->orWhere('phone', 'like', "%$search%");
+              });
+        });
     }
+
+    if ($request->start_date && $request->end_date) {
+        $query->whereBetween('date', [$request->start_date, $request->end_date]);
+    }
+
+    if ($request->status) {
+        $query->where('payment_status', $request->status);
+    }
+
+    $sales = $query->paginate(10);
+
+    return response()->json([
+        'status' => true,
+        'data' => $sales
+    ]);
+}
 
     /**
      * Store a newly created resource in storage.
