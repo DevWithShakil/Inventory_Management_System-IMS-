@@ -1,11 +1,12 @@
 <script setup>
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, nextTick } from "vue";
 import {
   XMarkIcon,
   BanknotesIcon,
   CreditCardIcon,
   DevicePhoneMobileIcon,
   CheckCircleIcon,
+  ArrowRightCircleIcon, // নতুন আইকন
 } from "@heroicons/vue/24/outline";
 
 const props = defineProps({
@@ -17,13 +18,20 @@ const props = defineProps({
 const emit = defineEmits(["close", "submit-payment"]);
 
 // --- State ---
-const paymentMethod = ref("cash"); // default
+const paymentMethod = ref("cash");
 const receivedAmount = ref(0);
 const note = ref("");
-const isSubmitting = ref(false);
+const amountInput = ref(null);
 
-// --- Watchers ---
-// মডাল ওপেন হলে Received Amount অটোমেটিক Total Amount এর সমান করে দেওয়া (সুবিধার জন্য)
+// --- Watcher: Payment Method Change ---
+// কার্ড বা MFS সিলেক্ট করলে অটোমেটিক পুরো অ্যামাউন্ট সেট হবে এবং এডিট করা যাবে না
+watch(paymentMethod, (newMethod) => {
+  if (newMethod !== "cash") {
+    receivedAmount.value = props.totalAmount;
+  }
+});
+
+// --- Watcher: Reset when modal opens ---
 watch(
   () => props.isOpen,
   (newVal) => {
@@ -31,38 +39,38 @@ watch(
       receivedAmount.value = props.totalAmount;
       paymentMethod.value = "cash";
       note.value = "";
+
+      nextTick(() => {
+        if (amountInput.value) amountInput.value.select();
+      });
     }
   },
 );
 
 // --- Computeds ---
 const changeAmount = computed(() => {
+  if (paymentMethod.value !== "cash") return 0; // অনলাইন পেমেন্টে চেঞ্জ নেই
   const change = receivedAmount.value - props.totalAmount;
   return change > 0 ? change : 0;
 });
 
 const dueAmount = computed(() => {
+  if (paymentMethod.value !== "cash") return 0; // অনলাইন পেমেন্টে ডিউ নেই
   const due = props.totalAmount - receivedAmount.value;
   return due > 0 ? due : 0;
 });
 
-// --- Actions ---
+// --- Action ---
 const handleConfirm = () => {
   if (receivedAmount.value < 0) return;
 
-  isSubmitting.value = true;
-
-  // প্যারেন্ট কম্পোনেন্টকে ডাটা পাঠানো
   emit("submit-payment", {
     payment_method: paymentMethod.value,
     received_amount: receivedAmount.value,
     change_amount: changeAmount.value,
-    due_amount: dueAmount.value, // যদি পার্শিয়াল পেমেন্ট সিস্টেম থাকে
+    due_amount: dueAmount.value,
     note: note.value,
   });
-
-  // লোডিং রিসেট হবে প্যারেন্ট থেকে সাকসেস হলে, অথবা ম্যানুয়ালি:
-  setTimeout(() => (isSubmitting.value = false), 1000);
 };
 </script>
 
@@ -82,7 +90,10 @@ const handleConfirm = () => {
             Complete Payment
           </h3>
           <p class="text-sm text-gray-500">
-            Invoice for {{ customer?.name || "Walk-in Customer" }}
+            Invoice for
+            <span class="font-bold text-indigo-600">{{
+              customer?.name || "Walk-in Customer"
+            }}</span>
           </p>
         </div>
         <button
@@ -95,7 +106,7 @@ const handleConfirm = () => {
 
       <div class="p-6 space-y-6">
         <div
-          class="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl text-center border border-indigo-100 dark:border-indigo-800"
+          class="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl text-center border border-indigo-100 dark:border-indigo-800/30"
         >
           <p
             class="text-sm font-medium text-indigo-600 dark:text-indigo-400 uppercase tracking-wider"
@@ -117,7 +128,7 @@ const handleConfirm = () => {
           <div class="grid grid-cols-3 gap-3">
             <button
               @click="paymentMethod = 'cash'"
-              :class="`flex flex-col items-center justify-center gap-2 p-3 rounded-xl border transition ${
+              :class="`flex flex-col items-center justify-center gap-2 p-3 rounded-xl border transition active:scale-95 ${
                 paymentMethod === 'cash'
                   ? 'bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-300 dark:ring-indigo-900'
                   : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'
@@ -129,10 +140,10 @@ const handleConfirm = () => {
 
             <button
               @click="paymentMethod = 'card'"
-              :class="`flex flex-col items-center justify-center gap-2 p-3 rounded-xl border transition ${
+              :class="`flex flex-col items-center justify-center gap-2 p-3 rounded-xl border transition active:scale-95 ${
                 paymentMethod === 'card'
                   ? 'bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-300'
-                  : 'bg-white dark:bg-slate-800 text-gray-600 border-gray-200 hover:bg-gray-50'
+                  : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'
               }`"
             >
               <CreditCardIcon class="w-6 h-6" />
@@ -141,10 +152,10 @@ const handleConfirm = () => {
 
             <button
               @click="paymentMethod = 'mobile_bank'"
-              :class="`flex flex-col items-center justify-center gap-2 p-3 rounded-xl border transition ${
+              :class="`flex flex-col items-center justify-center gap-2 p-3 rounded-xl border transition active:scale-95 ${
                 paymentMethod === 'mobile_bank'
                   ? 'bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-300'
-                  : 'bg-white dark:bg-slate-800 text-gray-600 border-gray-200 hover:bg-gray-50'
+                  : 'bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700'
               }`"
             >
               <DevicePhoneMobileIcon class="w-6 h-6" />
@@ -157,22 +168,28 @@ const handleConfirm = () => {
           <div>
             <label
               class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1"
-              >Received Amount</label
             >
+              {{
+                paymentMethod === "cash" ? "Received Amount" : "Payable Amount"
+              }}
+            </label>
             <div class="relative">
               <span class="absolute left-3 top-2.5 text-gray-400 font-bold"
                 >৳</span
               >
               <input
+                ref="amountInput"
                 v-model.number="receivedAmount"
                 type="number"
-                class="w-full pl-8 pr-4 py-2 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-gray-900 dark:text-white"
+                :disabled="paymentMethod !== 'cash'"
+                class="w-full pl-8 pr-4 py-2 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-gray-900 dark:text-white disabled:bg-gray-100 disabled:text-gray-500"
                 @focus="$event.target.select()"
+                @keyup.enter="handleConfirm"
               />
             </div>
           </div>
 
-          <div>
+          <div v-if="paymentMethod === 'cash'">
             <label
               class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1"
             >
@@ -181,10 +198,10 @@ const handleConfirm = () => {
             <div
               :class="`w-full px-4 py-2 rounded-lg border font-bold text-lg flex items-center justify-between ${
                 changeAmount > 0
-                  ? 'bg-green-50 text-green-700 border-green-200'
+                  ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border-green-200 dark:border-green-800'
                   : dueAmount > 0
-                    ? 'bg-red-50 text-red-700 border-red-200'
-                    : 'bg-gray-100 text-gray-500'
+                    ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800'
+                    : 'bg-gray-100 dark:bg-slate-800 text-gray-500 border-gray-200 dark:border-slate-700'
               }`"
             >
               <span>৳</span>
@@ -194,6 +211,14 @@ const handleConfirm = () => {
                   : dueAmount.toLocaleString()
               }}</span>
             </div>
+          </div>
+
+          <div
+            v-else
+            class="flex items-center text-xs text-gray-500 bg-gray-50 dark:bg-slate-800 p-2 rounded border border-gray-200 dark:border-slate-700"
+          >
+            You will be redirected to SSLCommerz gateway to complete the
+            payment.
           </div>
         </div>
 
@@ -206,7 +231,7 @@ const handleConfirm = () => {
             v-model="note"
             rows="2"
             placeholder="Type any reference note..."
-            class="w-full px-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+            class="w-full px-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition"
           ></textarea>
         </div>
       </div>
@@ -216,22 +241,21 @@ const handleConfirm = () => {
       >
         <button
           @click="$emit('close')"
-          class="flex-1 px-4 py-3 bg-white border border-gray-300 text-gray-700 font-bold rounded-xl hover:bg-gray-50 transition"
+          class="flex-1 px-4 py-3 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 text-gray-700 dark:text-gray-300 font-bold rounded-xl hover:bg-gray-50 dark:hover:bg-slate-700 transition"
         >
           Cancel
         </button>
         <button
           @click="handleConfirm"
-          :disabled="isSubmitting"
-          class="flex-[2] px-4 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg hover:shadow-indigo-500/30 transition flex justify-center items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+          class="flex-[2] px-4 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg hover:shadow-indigo-500/30 transition flex justify-center items-center gap-2 transform active:scale-95"
         >
-          <span
-            v-if="isSubmitting"
-            class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"
-          ></span>
-          <span v-else class="flex items-center gap-2">
-            <CheckCircleIcon class="w-5 h-5" /> Confirm Payment
-          </span>
+          <component
+            :is="
+              paymentMethod === 'cash' ? CheckCircleIcon : ArrowRightCircleIcon
+            "
+            class="w-5 h-5"
+          />
+          {{ paymentMethod === "cash" ? "Confirm Payment" : "Pay Online" }}
         </button>
       </div>
     </div>
@@ -239,7 +263,6 @@ const handleConfirm = () => {
 </template>
 
 <style scoped>
-/* Simple enter animation */
 .animate-fade-in-up {
   animation: fadeInUp 0.3s ease-out forwards;
 }

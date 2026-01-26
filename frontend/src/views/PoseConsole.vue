@@ -1,9 +1,10 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed, nextTick } from "vue";
+import { ref, onMounted, onUnmounted, computed } from "vue";
 import axios from "../axios";
 import Swal from "sweetalert2";
 import PaymentModal from "../components/PaymentModal.vue";
 import InvoiceModal from "../components/InvoiceModal.vue";
+import { useRouter, useRoute } from "vue-router";
 
 import {
   MagnifyingGlassIcon,
@@ -17,9 +18,9 @@ import {
   GiftIcon,
   TicketIcon,
   UserPlusIcon,
-  PauseIcon, // Hold Icon
-  ClockIcon, // Recall Icon
-  BoltIcon, // Shortcut Icon hint
+  PauseIcon,
+  ClockIcon,
+  BoltIcon,
 } from "@heroicons/vue/24/outline";
 
 // --- State ---
@@ -27,7 +28,7 @@ const products = ref([]);
 const categories = ref([]);
 const customers = ref([]);
 const cart = ref([]);
-const heldOrders = ref([]); // ১. হোল্ড করা অর্ডার রাখার লিস্ট
+const heldOrders = ref([]);
 const isLoading = ref(false);
 
 // Refs for Focus Management
@@ -46,7 +47,7 @@ const redeemPoints = ref(false);
 // Modal States
 const showPaymentModal = ref(false);
 const showInvoiceModal = ref(false);
-const showHeldOrdersModal = ref(false); // Held Orders দেখার মডাল
+const showHeldOrdersModal = ref(false);
 const completedSaleData = ref(null);
 
 // --- API Actions ---
@@ -90,32 +91,26 @@ const loadHeldOrders = () => {
 const handleSearchEnter = () => {
   if (!searchQuery.value) return;
 
-  // SKU বা নামের সাথে হুবহু মিল খুঁজছি
   const query = searchQuery.value.toLowerCase();
-
-  // প্রথমে এক্সাক্ট SKU ম্যাচ চেক করি (স্ক্যানারের জন্য)
   let product = products.value.find(
     (p) => p.sku && p.sku.toLowerCase() === query,
   );
 
-  // যদি SKU না মিলে, তবে নামের সাথে মিল আছে কিনা দেখি
   if (!product) {
     product = products.value.find((p) => p.name.toLowerCase() === query);
   }
 
-  // যদি প্রোডাক্ট পাওয়া যায়
   if (product) {
     addToCart(product);
-    searchQuery.value = ""; // স্ক্যান শেষে ইনপুট ক্লিয়ার (পরের স্ক্যানের জন্য রেডি)
+    searchQuery.value = "";
 
-    // সাকসেস সাউন্ড বা টোস্ট (অপশনাল)
+    // Sound Effect
     const audio = new Audio(
       "https://codeskulptor-demos.commondatastorage.googleapis.com/pang/pop.mp3",
     );
     audio.volume = 0.5;
-    audio.play().catch(() => {}); // সাউন্ড প্লে না হলে ইগনোর
+    audio.play().catch(() => {});
   } else {
-    // প্রোডাক্ট না পাওয়া গেলে
     Swal.fire({
       icon: "error",
       title: "Not Found",
@@ -144,9 +139,7 @@ const holdOrder = () => {
   };
 
   heldOrders.value.push(orderData);
-  localStorage.setItem("pos_held_orders", JSON.stringify(heldOrders.value)); // সেভ টু স্টোরেজ
-
-  // কার্ট ক্লিয়ার
+  localStorage.setItem("pos_held_orders", JSON.stringify(heldOrders.value));
   resetCartState();
 
   Swal.fire({
@@ -161,18 +154,14 @@ const holdOrder = () => {
 };
 
 const recallOrder = (index) => {
-  // কনফার্মেশন (যদি বর্তমানে কার্টে কিছু থাকে)
   if (cart.value.length > 0) {
     if (!confirm("Current cart will be replaced. Continue?")) return;
   }
 
   const order = heldOrders.value[index];
 
-  // রিস্টোর ডাটা
   cart.value = order.items;
   selectedCustomer.value = order.customer;
-
-  // লিস্ট থেকে রিমুভ
   heldOrders.value.splice(index, 1);
   localStorage.setItem("pos_held_orders", JSON.stringify(heldOrders.value));
 
@@ -195,23 +184,19 @@ const removeHeldOrder = (index) => {
 
 // --- Feature 3: Keyboard Shortcuts ---
 const handleKeydown = (e) => {
-  // F4: Focus Search
   if (e.key === "F4") {
     e.preventDefault();
     searchInputRef.value?.focus();
   }
-  // F8: Hold Order / View Held
   if (e.key === "F8") {
     e.preventDefault();
     if (cart.value.length > 0) holdOrder();
     else if (heldOrders.value.length > 0) showHeldOrdersModal.value = true;
   }
-  // F9: Pay Now
   if (e.key === "F9") {
     e.preventDefault();
     handlePaymentTrigger();
   }
-  // Esc: Clear Cart or Close Modal
   if (e.key === "Escape") {
     if (showPaymentModal.value) showPaymentModal.value = false;
     else if (showHeldOrdersModal.value) showHeldOrdersModal.value = false;
@@ -221,7 +206,6 @@ const handleKeydown = (e) => {
 
 // --- Customer Logic ---
 const addNewCustomer = async () => {
-  // ... (Previous logic kept same)
   const { value: formValues } = await Swal.fire({
     title: "Add New Customer",
     html:
@@ -237,9 +221,13 @@ const addNewCustomer = async () => {
   if (formValues) {
     const [name, phone] = formValues;
     if (!name || !phone) return;
+
+    // In real app, call API to save customer here
+    // For now, push to local list
     const newCus = { id: Date.now(), name, phone, points: 0 };
     customers.value.push(newCus);
     selectedCustomer.value = newCus.id;
+
     Swal.fire({
       icon: "success",
       title: "Customer Added",
@@ -251,9 +239,10 @@ const addNewCustomer = async () => {
   }
 };
 
-// --- Cart Logic (Existing) ---
+// --- Cart Logic ---
 const addToCart = (product) => {
-  const currentStock = product.stock_quantity || product.quantity || 0;
+  const currentStock = product.stock_quantity || 0;
+
   if (currentStock <= 0) {
     Swal.fire({
       icon: "warning",
@@ -265,23 +254,26 @@ const addToCart = (product) => {
     });
     return;
   }
+
   const existingItem = cart.value.find((item) => item.id === product.id);
   if (existingItem) {
-    if (existingItem.qty < currentStock) existingItem.qty++;
-    else
+    if (existingItem.qty < currentStock) {
+      existingItem.qty++;
+    } else {
       Swal.fire({
         icon: "warning",
-        title: "Stock Limit",
+        title: "Stock Limit Reached",
         toast: true,
         position: "top-end",
         showConfirmButton: false,
         timer: 1500,
       });
+    }
   } else {
     cart.value.push({
       ...product,
       qty: 1,
-      price: product.selling_price || product.price || 0,
+      price: Number(product.selling_price || 0), // Ensure numeric price
     });
   }
 };
@@ -290,7 +282,7 @@ const removeFromCart = (index) => cart.value.splice(index, 1);
 
 const updateQty = (index, change) => {
   const item = cart.value[index];
-  const currentStock = item.stock_quantity || item.quantity || 0;
+  const currentStock = item.stock_quantity || 0;
   const newQty = item.qty + change;
   if (newQty > 0 && newQty <= currentStock) item.qty = newQty;
 };
@@ -318,9 +310,10 @@ const resetCartState = () => {
   redeemPoints.value = false;
 };
 
-// --- Coupon Logic (Existing) ---
+// --- Coupon Logic ---
 const applyCoupon = () => {
   if (!couponCode.value) return;
+  // Demo Coupon Logic - Replace with API call
   if (couponCode.value === "DISCOUNT100") {
     appliedCoupon.value = { code: "DISCOUNT100", amount: 100, type: "fixed" };
     Swal.fire({
@@ -344,13 +337,15 @@ const applyCoupon = () => {
   }
 };
 
-// --- Calculations (Existing) ---
+// --- Calculations ---
 const currentCustomerData = computed(
   () => customers.value.find((c) => c.id === selectedCustomer.value) || null,
 );
+
 const subTotal = computed(() =>
   cart.value.reduce((total, item) => total + item.price * item.qty, 0),
 );
+
 const pointsDiscount = computed(() =>
   redeemPoints.value &&
   currentCustomerData.value &&
@@ -358,6 +353,7 @@ const pointsDiscount = computed(() =>
     ? Math.min(currentCustomerData.value.points, subTotal.value)
     : 0,
 );
+
 const couponDiscountAmount = computed(() =>
   appliedCoupon.value
     ? appliedCoupon.value.type === "fixed"
@@ -365,12 +361,14 @@ const couponDiscountAmount = computed(() =>
       : (subTotal.value * appliedCoupon.value.amount) / 100
     : 0,
 );
+
 const grandTotal = computed(() =>
   Math.max(
     subTotal.value - pointsDiscount.value - couponDiscountAmount.value,
     0,
   ),
 );
+
 const potentialPoints = computed(() => Math.floor(grandTotal.value / 100));
 
 const filteredProducts = computed(() => {
@@ -387,7 +385,7 @@ const filteredProducts = computed(() => {
   });
 });
 
-// --- Payment Logic (Existing) ---
+// --- Payment & Processing Logic (UPDATED) ---
 const handlePaymentTrigger = () => {
   if (cart.value.length === 0) {
     Swal.fire({
@@ -397,75 +395,149 @@ const handlePaymentTrigger = () => {
     });
     return;
   }
+
   if (!selectedCustomer.value && selectedCustomer.value !== "walk-in") {
-    Swal.fire({
-      icon: "error",
-      title: "Customer Required",
-      text: "Please select a customer.",
-    });
-    return;
+    // If you want to force selection. If walk-in is allowed null, remove this check or adjust logic.
+    // For this code, we allow null if user didn't pick anything, handled in processSale
   }
+
   showPaymentModal.value = true;
 };
 
+// CORE FUNCTION: Process Sale with Backend
 const processSale = async (paymentDetails) => {
+  if (cart.value.length === 0) return;
+
   try {
-    const saleData = {
+    // 1. Common Data Payload
+    const salePayload = {
       customer_id:
         selectedCustomer.value === "walk-in" ? null : selectedCustomer.value,
-      items: cart.value,
-      sub_total: subTotal.value,
-      discount: pointsDiscount.value + couponDiscountAmount.value,
-      grand_total: grandTotal.value,
-      // ... rest data
-      payment_method: paymentDetails.payment_method,
-      paid_amount: paymentDetails.received_amount,
-      due_amount: paymentDetails.due_amount,
-    };
-
-    // Fake Success
-    const fakeInvoiceData = {
-      ...saleData,
-      id: Math.floor(Math.random() * 10000),
-      created_at: new Date().toISOString(),
-      customer: currentCustomerData.value || { name: "Walk-in Customer" },
-      payment_status: paymentDetails.due_amount > 0 ? "Due" : "Paid",
-      sale_items: cart.value.map((item) => ({
-        ...item,
-        product: item,
+      items: cart.value.map((item) => ({
+        product_id: item.id,
+        quantity: item.qty,
         unit_price: item.price,
-        total_price: item.price * item.qty,
+        subtotal: item.price * item.qty,
       })),
+      sub_total: subTotal.value,
+      discount: (pointsDiscount.value || 0) + (couponDiscountAmount.value || 0),
+      grand_total: grandTotal.value,
+      payment_method: paymentDetails.payment_method,
+      note: paymentDetails.note,
     };
 
-    showPaymentModal.value = false;
-    clearCart(true);
-    completedSaleData.value = fakeInvoiceData;
-    showInvoiceModal.value = true;
-    Swal.fire({
-      icon: "success",
-      title: "Sale Completed!",
-      toast: true,
-      position: "top-end",
-      timer: 2000,
-      showConfirmButton: false,
-    });
+    // 2. Logic Split based on Method
+    if (paymentDetails.payment_method === "cash") {
+      // --- CASH PAYMENT ---
+      salePayload.paid_amount = paymentDetails.received_amount;
+      salePayload.due_amount = paymentDetails.due_amount;
+
+      const response = await axios.post("/sales", salePayload);
+
+      if (response.data.status) {
+        handleSuccess(response.data.data);
+      }
+    } else {
+      Swal.fire({
+        title: "Processing...",
+        text: "Redirecting to Payment Gateway",
+        allowOutsideClick: false,
+        didOpen: () => {
+          Swal.showLoading();
+        },
+      });
+
+      const response = await axios.post("/pay-via-ssl", salePayload);
+      if (response.data.status === true && response.data.url) {
+        window.location.href = response.data.url;
+      } else {
+        Swal.fire(
+          "Error",
+          response.data.message || "Failed to initiate payment",
+          "error",
+        );
+      }
+    }
   } catch (error) {
-    console.error(error);
+    console.error("Sale Error:", error);
+    console.log(error.response?.data);
+
+    let msg = "Failed to process sale.";
+    if (error.response && error.response.data.message) {
+      msg = error.response.data.message;
+    }
+    Swal.fire({
+      icon: "error",
+      title: "Error",
+      text: msg,
+    });
   }
 };
 
+// Helper for Cash Success
+const handleSuccess = (saleData) => {
+  showPaymentModal.value = false;
+  resetCartState();
+  completedSaleData.value = saleData;
+  showInvoiceModal.value = true;
+  fetchProducts();
+  Swal.fire({
+    icon: "success",
+    title: "Sale Completed!",
+    toast: true,
+    position: "top-end",
+    timer: 2000,
+    showConfirmButton: false,
+  });
+};
+
 // --- Lifecycle ---
-onMounted(() => {
+onMounted(async () => {
   fetchProducts();
   fetchCategories();
   fetchCustomers();
-  loadHeldOrders(); // লোড পেন্ডিং অর্ডার
-  window.addEventListener("keydown", handleKeydown); // শর্টকাট লিসেনার
+  loadHeldOrders();
+  window.addEventListener("keydown", handleKeydown);
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const isSuccess = urlParams.get("payment_success");
+  const saleId = urlParams.get("sale_id");
+
+  if (isSuccess === "true" && saleId) {
+    try {
+      const response = await axios.get(`/sales/${saleId}`);
+      if (response.data.status) {
+        resetCartState();
+        completedSaleData.value = response.data.data;
+        showInvoiceModal.value = true;
+        window.history.replaceState(
+          {},
+          document.title,
+          window.location.pathname,
+        );
+        Swal.fire({
+          icon: "success",
+          title: "Payment Successful!",
+          text: "Thank you for your purchase.",
+          timer: 3000,
+          showConfirmButton: false,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load invoice details", error);
+    }
+  } else if (urlParams.get("payment_failed")) {
+    Swal.fire({
+      icon: "error",
+      title: "Payment Failed",
+      text: "Transaction was unsuccessful.",
+    });
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
 });
 
 onUnmounted(() => {
-  window.removeEventListener("keydown", handleKeydown); // ক্লিনআপ
+  window.removeEventListener("keydown", handleKeydown);
 });
 </script>
 
@@ -548,13 +620,13 @@ onUnmounted(() => {
               <span
                 class="absolute top-2 right-2 px-2 py-0.5 text-[10px] font-bold rounded-full shadow-sm backdrop-blur-sm"
                 :class="
-                  (product.stock_quantity || product.quantity || 0) <= 5
+                  (product.stock_quantity || 0) <= (product.alert_quantity || 5)
                     ? 'bg-red-500 text-white'
                     : 'bg-green-500 text-white'
                 "
-                >Qty:
-                {{ product.stock_quantity || product.quantity || 0 }}</span
               >
+                Qty: {{ product.stock_quantity || 0 }}
+              </span>
             </div>
             <div class="p-3">
               <h3
@@ -566,14 +638,9 @@ onUnmounted(() => {
                 {{ product.sku || "No SKU" }}
               </p>
               <div class="flex justify-between items-center">
-                <span class="text-indigo-600 dark:text-indigo-400 font-bold"
-                  >৳
-                  {{
-                    Number(
-                      product.selling_price || product.price || 0,
-                    ).toLocaleString()
-                  }}</span
-                >
+                <span class="text-indigo-600 dark:text-indigo-400 font-bold">
+                  ৳ {{ Number(product.selling_price || 0).toLocaleString() }}
+                </span>
                 <button
                   class="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-600 hover:text-white transition"
                 >
@@ -641,7 +708,6 @@ onUnmounted(() => {
           >
             <UserPlusIcon class="w-5 h-5" />
           </button>
-
           <button
             @click="holdOrder"
             class="p-2 bg-amber-50 text-amber-600 rounded-lg border border-amber-100 hover:bg-amber-100 transition"
@@ -844,7 +910,7 @@ onUnmounted(() => {
             @click="showHeldOrdersModal = false"
             class="text-gray-400 hover:text-gray-600"
           >
-            <TrashIcon class="w-5 h-5 hidden" /> Close
+            Close
           </button>
         </div>
         <div class="p-4 max-h-[60vh] overflow-y-auto">
@@ -886,14 +952,6 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
-        </div>
-        <div class="p-3 bg-gray-50 text-right">
-          <button
-            @click="showHeldOrdersModal = false"
-            class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-bold"
-          >
-            Close
-          </button>
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, computed, watch } from "vue";
-import { useRouter, useRoute } from "vue-router"; // Router Imports
+import { useRouter, useRoute } from "vue-router";
 import axios from "../axios";
 import Swal from "sweetalert2";
 import ProductFormModal from "../components/ProductFormModal.vue";
@@ -27,14 +27,14 @@ const isLoading = ref(false);
 const filters = ref({
   search: "",
   category_id: "",
-  stock_status: "", // '', 'low', 'out'
+  stock_status: "",
 });
 
 // Modal State
 const showProductModal = ref(false);
 const selectedProduct = ref(null);
 
-// --- 🔥 URL Watcher (Connection with Sidebar) ---
+// ---  URL Watcher (Connection with Sidebar) ---
 watch(
   () => route.query.action,
   (newAction) => {
@@ -145,7 +145,7 @@ const openEditModal = (product) => {
   showProductModal.value = true;
 };
 
-// 🔥 Updated Modal Close: Cleans URL query
+// Updated Modal Close: Cleans URL query
 const handleModalClose = (shouldRefresh) => {
   showProductModal.value = false;
   selectedProduct.value = null;

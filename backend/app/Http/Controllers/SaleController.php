@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-
 use Illuminate\Http\Request;
 use App\Models\Sale;
 use App\Models\Product;
@@ -10,42 +9,41 @@ use App\Models\SaleItem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
-
 class SaleController extends Controller
 {
     /**
      * Display a listing of the resource.
      */
-   public function index(Request $request)
-{
-    $query = Sale::with('customer')->latest();
+    public function index(Request $request)
+    {
+        $query = Sale::with('customer')->latest();
 
-    if ($request->search) {
-        $search = $request->search;
-        $query->where(function($q) use ($search) {
-            $q->where('id', 'like', "%$search%")
-              ->orWhereHas('customer', function($c) use ($search) {
-                  $c->where('name', 'like', "%$search%")
-                    ->orWhere('phone', 'like', "%$search%");
-              });
-        });
+        if ($request->search) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('invoice_no', 'like', "%$search%")
+                  ->orWhereHas('customer', function($c) use ($search) {
+                      $c->where('name', 'like', "%$search%")
+                        ->orWhere('phone', 'like', "%$search%");
+                  });
+            });
+        }
+
+        if ($request->start_date && $request->end_date) {
+            $query->whereBetween('date', [$request->start_date, $request->end_date]);
+        }
+
+        if ($request->status) {
+            $query->where('payment_status', $request->status);
+        }
+
+        $sales = $query->paginate(10);
+
+        return response()->json([
+            'status' => true,
+            'data' => $sales
+        ]);
     }
-
-    if ($request->start_date && $request->end_date) {
-        $query->whereBetween('date', [$request->start_date, $request->end_date]);
-    }
-
-    if ($request->status) {
-        $query->where('payment_status', $request->status);
-    }
-
-    $sales = $query->paginate(10);
-
-    return response()->json([
-        'status' => true,
-        'data' => $sales
-    ]);
-}
 
     /**
      * Store a newly created resource in storage.
@@ -54,7 +52,6 @@ class SaleController extends Controller
     {
         $request->validate([
             'customer_id' => 'nullable|exists:customers,id',
-            'date' => 'required|date',
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
@@ -67,15 +64,29 @@ class SaleController extends Controller
             DB::beginTransaction();
 
             $subtotal = 0;
+            $itemsToInsert = [];
 
             foreach ($request->items as $item) {
                 $product = Product::find($item['product_id']);
 
-                if ($product->stock_quantity < $item['quantity']) {
-                    throw new \Exception("Stock not available for product: " . $product->name);
+                if (!$product) {
+                    throw new \Exception("Product not found ID: " . $item['product_id']);
                 }
 
-                $subtotal += $item['quantity'] * $item['unit_price'];
+                if ($product->stock_quantity < $item['quantity']) {
+                    throw new \Exception("Stock not available for: " . $product->name);
+                }
+
+                $lineTotal = $item['quantity'] * $item['unit_price'];
+                $subtotal += $lineTotal;
+
+                $itemsToInsert[] = [
+                    'product_obj' => $product,
+                    'product_id' => $item['product_id'],
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $item['unit_price'],
+                    'subtotal' => $lineTotal
+                ];
             }
 
             $discount = $request->discount ?? 0;
@@ -83,15 +94,23 @@ class SaleController extends Controller
             $grandTotal = ($subtotal + $tax) - $discount;
 
             $dueAmount = $grandTotal - $request->paid_amount;
-            $paymentStatus = ($dueAmount > 0) ? 'partial' : 'paid';
-            if ($dueAmount == $grandTotal) $paymentStatus = 'due';
 
-            $invoiceNo = 'INV-' . time();
+
+            if ($dueAmount <= 0) {
+                $paymentStatus = 'paid';
+                $dueAmount = 0;
+            } elseif ($request->paid_amount > 0) {
+                $paymentStatus = 'partial';
+            } else {
+                $paymentStatus = 'due';
+            }
+
+            $invoiceNo = 'INV-' . time() . rand(10,99);
 
             $sale = Sale::create([
                 'customer_id' => $request->customer_id,
                 'invoice_no' => $invoiceNo,
-                'date' => $request->date,
+                'date' => $request->date ?? now(),
                 'subtotal' => $subtotal,
                 'discount' => $discount,
                 'tax' => $tax,
@@ -100,28 +119,27 @@ class SaleController extends Controller
                 'due_amount' => $dueAmount,
                 'payment_method' => $request->payment_method,
                 'payment_status' => $paymentStatus,
-                'created_by' => auth()->id(),
+                'created_by' => auth()->id() ?? 1,
             ]);
 
-            foreach ($request->items as $item) {
+            foreach ($itemsToInsert as $itemData) {
                 SaleItem::create([
                     'sale_id' => $sale->id,
-                    'product_id' => $item['product_id'],
-                    'quantity' => $item['quantity'],
-                    'unit_price' => $item['unit_price'],
-                    'subtotal' => $item['quantity'] * $item['unit_price']
+                    'product_id' => $itemData['product_id'],
+                    'quantity' => $itemData['quantity'],
+                    'unit_price' => $itemData['unit_price'],
+                    'subtotal' => $itemData['subtotal']
                 ]);
 
-                $product = Product::find($item['product_id']);
-                $product->decrement('stock_quantity', $item['quantity']);
+                $itemData['product_obj']->decrement('stock_quantity', $itemData['quantity']);
             }
 
             DB::commit();
 
             return response()->json([
                 'status' => true,
-                'message' => 'Sale completed successfully',
-                'data' => $sale
+                'message' => 'Sale created successfully',
+                'data' => $sale->load('customer', 'sale_items.product')
             ], 201);
 
         } catch (\Exception $e) {
@@ -129,8 +147,7 @@ class SaleController extends Controller
             Log::error('Sale Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
-                'message' => $e->getMessage(),
-                'line' => $e->getLine()
+                'message' => $e->getMessage()
             ], 400);
         }
     }
@@ -138,13 +155,10 @@ class SaleController extends Controller
     /**
      * Display the specified resource.
      */
-    /**
-     * Display the specified resource.
-     */
     public function show($id)
     {
         try {
-            $sale = Sale::with(['customer', 'sale_items.product', 'creator'])
+            $sale = Sale::with(['customer', 'sale_items.product'])
                 ->find($id);
 
             if (!$sale) {
@@ -162,33 +176,27 @@ class SaleController extends Controller
     }
 
     /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
-    {
-       //
-    }
-
-    /**
      * Remove the specified resource from storage.
      */
-    public function destroy(string $id)
+    public function destroy($id)
     {
         try {
             DB::beginTransaction();
 
-            $sale = Sale::with('items')->find($id);
+            $sale = Sale::with('sale_items')->find($id);
 
             if (!$sale) {
                 return response()->json(['status' => false, 'message' => 'Sale not found'], 404);
             }
 
-            foreach ($sale->items as $item) {
+            foreach ($sale->sale_items as $item) {
                 $product = Product::find($item->product_id);
                 if ($product) {
                     $product->increment('stock_quantity', $item->quantity);
                 }
             }
+
+            $sale->sale_items()->delete();
 
             $sale->delete();
 

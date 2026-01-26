@@ -12,7 +12,7 @@ import {
 } from "@heroicons/vue/24/outline";
 
 // --- State ---
-const activeTab = ref("categories"); // 'categories', 'brands', 'units'
+const activeTab = ref("categories");
 const items = ref([]);
 const isLoading = ref(false);
 const showModal = ref(false);

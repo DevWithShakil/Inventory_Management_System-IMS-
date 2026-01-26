@@ -27,7 +27,7 @@ const isLoading = ref(false);
 const searchQuery = ref("");
 const startDate = ref("");
 const endDate = ref("");
-const statusFilter = ref(""); // 'completed', 'pending'
+const statusFilter = ref("");
 
 // Modal State
 const showModal = ref(false);

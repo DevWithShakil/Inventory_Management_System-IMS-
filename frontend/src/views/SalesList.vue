@@ -2,7 +2,7 @@
 import { ref, onMounted, watch } from "vue";
 import axios from "../axios";
 import InvoiceModal from "../components/InvoiceModal.vue";
-import Swal from "sweetalert2"; // Ensure sweetalert2 is installed
+import Swal from "sweetalert2";
 
 import {
   MagnifyingGlassIcon,

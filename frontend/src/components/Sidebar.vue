@@ -90,14 +90,13 @@ const menuItems = computed(() => {
       ],
     },
     // --- 5. Suppliers Dropdown ---
-    // --- 5. Suppliers Dropdown ---
     {
       name: "Suppliers",
       icon: TruckIcon,
       roles: ["admin"],
       children: [
         { name: "All Suppliers", path: "/suppliers", icon: ListBulletIcon },
-        // 🔥 Link updated with query parameter
+        //  Link updated with query parameter
         {
           name: "Add Supplier",
           path: "/suppliers?action=add",
@@ -112,7 +111,7 @@ const menuItems = computed(() => {
       roles: ["staff", "admin"],
       children: [
         { name: "All Customers", path: "/customers", icon: ListBulletIcon },
-        // 🔥 Link updated with query parameter
+        //  Link updated with query parameter
         {
           name: "Add Customer",
           path: "/customers?action=add",

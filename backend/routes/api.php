@@ -12,6 +12,7 @@ use App\Http\Controllers\PurchaseController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\SslCommerzController;
 
 
 // --- Public Routes ---
@@ -29,6 +30,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('sales', SaleController::class)->only(['store', 'index', 'show']);
     Route::apiResource('customers', CustomerController::class);
     Route::get('/products', [ProductController::class, 'index']);
+
+    // payment
+    Route::post('/pay-via-ssl', [SslCommerzController::class, 'payViaAjax']);
 
 // Admin Routes
 Route::middleware('role:admin')->group(function () {

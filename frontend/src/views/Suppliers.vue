@@ -1,9 +1,9 @@
 <script setup>
 import { ref, onMounted, computed, watch } from "vue";
-import { useRouter, useRoute } from "vue-router"; // Router Import
+import { useRouter, useRoute } from "vue-router";
 import axios from "../axios";
 import Swal from "sweetalert2";
-import SupplierFormModal from "../components/SupplierFormModal.vue"; // Modal Import
+import SupplierFormModal from "../components/SupplierFormModal.vue";
 import {
   MagnifyingGlassIcon,
   TruckIcon,
@@ -24,7 +24,7 @@ const searchQuery = ref("");
 const showModal = ref(false);
 const selectedSupplier = ref(null);
 
-// --- 🔥 URL Watcher (Connection with Sidebar) ---
+// --- URL Watcher (Connection with Sidebar) ---
 watch(
   () => route.query.action,
   (newAction) => {
@@ -110,7 +110,7 @@ const openEditModal = (s) => {
   showModal.value = true;
 };
 
-// 🔥 Updated Modal Close: Cleans URL query
+// Updated Modal Close: Cleans URL query
 const handleModalClose = (refresh) => {
   showModal.value = false;
   selectedSupplier.value = null;

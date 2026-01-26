@@ -27,7 +27,6 @@ const searchQuery = ref("");
 const showModal = ref(false);
 const selectedCustomer = ref(null);
 
-// --- 🔥 URL Watcher (Connection with Sidebar) ---
 watch(
   () => route.query.action,
   (newAction) => {
@@ -116,7 +115,7 @@ const openEditModal = (customer) => {
   showModal.value = true;
 };
 
-// 🔥 Updated Modal Close: Cleans URL query
+//  Updated Modal Close: Cleans URL query
 const handleModalClose = (refresh) => {
   showModal.value = false;
   selectedCustomer.value = null;
