@@ -6,6 +6,8 @@ import SalesList from '../views/SalesList.vue';
 import PoseConsole from '../views/PoseConsole.vue';
 import Inventory from '../views/Inventory.vue';
 import Customers from '../views/Customers.vue';
+import Settings from '../views/Settings.vue';
+import Attributes from '../views/Attributes.vue';
 
 const routes = [
     {
@@ -44,6 +46,17 @@ const routes = [
                 name: 'Customers',
                 component: Customers
             },
+            {
+                path: '/settings',
+                name: 'Settings',
+                component: Settings
+            },
+
+            {
+                path: '/attributes',
+                name: 'attributes',
+                component: Attributes
+            }
 
         ]
     },

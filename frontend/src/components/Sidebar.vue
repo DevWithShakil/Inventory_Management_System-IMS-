@@ -9,6 +9,9 @@ import {
   UsersIcon,
   Cog6ToothIcon,
   XMarkIcon,
+  TagIcon, // Attributes এর জন্য
+  TruckIcon, // Suppliers এর জন্য
+  ClipboardDocumentCheckIcon, // Purchases এর জন্য
 } from "@heroicons/vue/24/outline";
 
 const route = useRoute();
@@ -29,13 +32,38 @@ const menuItems = computed(() => {
       icon: ShoppingBagIcon,
       roles: ["staff", "admin"],
     },
-    { name: "Inventory", path: "/inventory", icon: CubeIcon, roles: ["admin"] },
     {
       name: "Sales Report",
       path: "/sales",
       icon: ChartBarIcon,
       roles: ["admin", "staff"],
     },
+    // --- New Modules Start ---
+    {
+      name: "Purchases",
+      path: "/purchases",
+      icon: ClipboardDocumentCheckIcon,
+      roles: ["admin"],
+    },
+    {
+      name: "Inventory",
+      path: "/inventory",
+      icon: CubeIcon,
+      roles: ["admin"],
+    },
+    {
+      name: "Attributes", // Categories, Brands, Units
+      path: "/attributes",
+      icon: TagIcon,
+      roles: ["admin"],
+    },
+    {
+      name: "Suppliers",
+      path: "/suppliers",
+      icon: TruckIcon,
+      roles: ["admin"],
+    },
+    // --- New Modules End ---
     {
       name: "Customers",
       path: "/customers",

@@ -10,8 +10,8 @@ import {
   TrashIcon,
   UserIcon,
   PhoneIcon,
-  CurrencyBangladeshiIcon,
   GiftIcon,
+  EyeIcon, // History আইকনের জন্য ইম্পোর্ট
 } from "@heroicons/vue/24/outline";
 
 // --- State ---
@@ -70,6 +70,15 @@ const deleteCustomer = async (id) => {
   }
 };
 
+// --- History Feature (Placeholder) ---
+const viewHistory = (customer) => {
+  Swal.fire({
+    title: `History: ${customer.name}`,
+    text: "Order history feature will be available once Sales Module is ready!",
+    icon: "info",
+  });
+};
+
 // --- Computed Filter ---
 const filteredCustomers = computed(() => {
   if (!searchQuery.value) return customers.value;
@@ -95,6 +104,7 @@ const openEditModal = (customer) => {
 
 const handleModalClose = (refresh) => {
   showModal.value = false;
+  selectedCustomer.value = null;
   if (refresh) fetchCustomers();
 };
 
@@ -162,9 +172,21 @@ onMounted(() => fetchCustomers());
           <tbody class="divide-y divide-gray-100 dark:divide-slate-800">
             <tr v-if="isLoading">
               <td colspan="5" class="px-6 py-10 text-center text-gray-500">
-                Loading...
+                <div class="flex justify-center items-center gap-2">
+                  <div
+                    class="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600"
+                  ></div>
+                  Loading...
+                </div>
               </td>
             </tr>
+
+            <tr v-else-if="filteredCustomers.length === 0">
+              <td colspan="5" class="px-6 py-10 text-center text-gray-400">
+                No customers found.
+              </td>
+            </tr>
+
             <tr
               v-else
               v-for="customer in filteredCustomers"
@@ -213,14 +235,25 @@ onMounted(() => fetchCustomers());
               <td class="px-6 py-3 text-center">
                 <div class="flex justify-center gap-2">
                   <button
+                    @click="viewHistory(customer)"
+                    class="p-1.5 text-indigo-600 bg-indigo-50 rounded hover:bg-indigo-100 transition"
+                    title="View History"
+                  >
+                    <EyeIcon class="w-4 h-4" />
+                  </button>
+
+                  <button
                     @click="openEditModal(customer)"
-                    class="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100"
+                    class="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition"
+                    title="Edit"
                   >
                     <PencilSquareIcon class="w-4 h-4" />
                   </button>
+
                   <button
                     @click="deleteCustomer(customer.id)"
-                    class="p-1.5 text-red-600 bg-red-50 rounded hover:bg-red-100"
+                    class="p-1.5 text-red-600 bg-red-50 rounded hover:bg-red-100 transition"
+                    title="Delete"
                   >
                     <TrashIcon class="w-4 h-4" />
                   </button>
