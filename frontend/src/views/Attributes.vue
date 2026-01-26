@@ -22,11 +22,10 @@ const isSubmitting = ref(false);
 const form = ref({
   id: null,
   name: "",
-  short_name: "", // Only for Units if needed
+  short_name: "",
 });
 
 // --- Configuration ---
-// প্রতিটি ট্যাবের জন্য API Endpoint এবং টাইটেল সেট করা
 const tabConfig = computed(() => ({
   categories: {
     title: "Category",

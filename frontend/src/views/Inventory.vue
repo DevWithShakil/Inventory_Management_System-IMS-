@@ -1,5 +1,6 @@
 <script setup>
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, watch } from "vue";
+import { useRouter, useRoute } from "vue-router"; // Router Imports
 import axios from "../axios";
 import Swal from "sweetalert2";
 import ProductFormModal from "../components/ProductFormModal.vue";
@@ -13,6 +14,9 @@ import {
   ExclamationTriangleIcon,
   Squares2X2Icon,
 } from "@heroicons/vue/24/outline";
+
+const route = useRoute();
+const router = useRouter();
 
 // --- State ---
 const products = ref([]);
@@ -30,9 +34,18 @@ const filters = ref({
 const showProductModal = ref(false);
 const selectedProduct = ref(null);
 
-// --- API Actions ---
+// --- 🔥 URL Watcher (Connection with Sidebar) ---
+watch(
+  () => route.query.action,
+  (newAction) => {
+    if (newAction === "add") {
+      openAddModal();
+    }
+  },
+  { immediate: true },
+);
 
-// 1. Fetch All Products
+// --- API Actions ---
 const fetchProducts = async () => {
   isLoading.value = true;
   try {
@@ -47,7 +60,6 @@ const fetchProducts = async () => {
   }
 };
 
-// 2. Fetch Categories
 const fetchCategories = async () => {
   try {
     const response = await axios.get("/categories");
@@ -57,7 +69,6 @@ const fetchCategories = async () => {
   }
 };
 
-// 3. Delete Product (UPDATED for better error handling)
 const deleteProduct = async (id) => {
   const result = await Swal.fire({
     title: "Are you sure?",
@@ -71,7 +82,6 @@ const deleteProduct = async (id) => {
   if (result.isConfirmed) {
     try {
       await axios.delete(`/products/${id}`);
-
       Swal.fire({
         icon: "success",
         title: "Deleted!",
@@ -80,12 +90,9 @@ const deleteProduct = async (id) => {
         showConfirmButton: false,
         timer: 1500,
       });
-
-      fetchProducts(); // Refresh list
+      fetchProducts();
     } catch (error) {
       console.error(error);
-
-      // সার্ভার থেকে আসা স্পেসিফিক মেসেজ দেখানো
       let msg = "Something went wrong.";
       if (
         error.response &&
@@ -94,16 +101,14 @@ const deleteProduct = async (id) => {
       ) {
         msg = error.response.data.message;
       }
-
       Swal.fire("Failed!", msg, "error");
     }
   }
 };
 
-// --- Frontend Filtering Logic ---
+// --- Filtering Logic ---
 const filteredProducts = computed(() => {
   return products.value.filter((product) => {
-    // 1. Search Logic (Name, SKU, Brand)
     const searchLower = filters.value.search.toLowerCase();
     const matchesSearch =
       product.name.toLowerCase().includes(searchLower) ||
@@ -111,12 +116,10 @@ const filteredProducts = computed(() => {
       (product.brand?.name &&
         product.brand.name.toLowerCase().includes(searchLower));
 
-    // 2. Category Filter
     const matchesCategory = filters.value.category_id
       ? product.category_id == filters.value.category_id
       : true;
 
-    // 3. Stock Status Filter
     let matchesStock = true;
     const stock = product.stock_quantity || 0;
     const alertQty = product.alert_quantity || 5;
@@ -142,15 +145,21 @@ const openEditModal = (product) => {
   showProductModal.value = true;
 };
 
+// 🔥 Updated Modal Close: Cleans URL query
 const handleModalClose = (shouldRefresh) => {
   showProductModal.value = false;
   selectedProduct.value = null;
+
+  // Remove '?action=add' from URL so it can be triggered again later
+  if (route.query.action) {
+    router.replace({ query: null });
+  }
+
   if (shouldRefresh) {
     fetchProducts();
   }
 };
 
-// --- Initial Load ---
 onMounted(() => {
   fetchProducts();
   fetchCategories();
@@ -251,7 +260,6 @@ onMounted(() => {
                 </div>
               </td>
             </tr>
-
             <tr
               v-else
               v-for="product in filteredProducts"
@@ -310,12 +318,7 @@ onMounted(() => {
               <td class="px-6 py-3 text-center">
                 <div class="flex flex-col items-center">
                   <span
-                    :class="`px-2.5 py-0.5 rounded-full text-xs font-bold border ${
-                      (product.stock_quantity || 0) <=
-                      (product.alert_quantity || 5)
-                        ? 'bg-red-100 text-red-700 border-red-200'
-                        : 'bg-green-100 text-green-700 border-green-200'
-                    }`"
+                    :class="`px-2.5 py-0.5 rounded-full text-xs font-bold border ${(product.stock_quantity || 0) <= (product.alert_quantity || 5) ? 'bg-red-100 text-red-700 border-red-200' : 'bg-green-100 text-green-700 border-green-200'}`"
                   >
                     {{ product.stock_quantity || 0 }}
                     {{ product.unit?.short_name || "pcs" }}
@@ -350,7 +353,6 @@ onMounted(() => {
                 </div>
               </td>
             </tr>
-
             <tr v-if="!isLoading && filteredProducts.length === 0">
               <td colspan="5" class="px-6 py-12 text-center text-gray-400">
                 <div class="flex flex-col items-center">

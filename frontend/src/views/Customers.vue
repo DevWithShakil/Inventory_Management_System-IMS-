@@ -1,5 +1,6 @@
 <script setup>
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, watch } from "vue";
+import { useRouter, useRoute } from "vue-router"; // Router import
 import axios from "../axios";
 import Swal from "sweetalert2";
 import CustomerFormModal from "../components/CustomerFormModal.vue";
@@ -11,8 +12,11 @@ import {
   UserIcon,
   PhoneIcon,
   GiftIcon,
-  EyeIcon, // History আইকনের জন্য ইম্পোর্ট
+  EyeIcon,
 } from "@heroicons/vue/24/outline";
+
+const route = useRoute();
+const router = useRouter();
 
 // --- State ---
 const customers = ref([]);
@@ -22,6 +26,17 @@ const searchQuery = ref("");
 // Modal State
 const showModal = ref(false);
 const selectedCustomer = ref(null);
+
+// --- 🔥 URL Watcher (Connection with Sidebar) ---
+watch(
+  () => route.query.action,
+  (newAction) => {
+    if (newAction === "add") {
+      openAddModal();
+    }
+  },
+  { immediate: true },
+);
 
 // --- API Actions ---
 const fetchCustomers = async () => {
@@ -61,7 +76,6 @@ const deleteCustomer = async (id) => {
       });
       fetchCustomers();
     } catch (error) {
-      // Foreign Key Error Handle
       let msg = "Failed to delete.";
       if (error.response && error.response.status === 400)
         msg = error.response.data.message;
@@ -102,9 +116,16 @@ const openEditModal = (customer) => {
   showModal.value = true;
 };
 
+// 🔥 Updated Modal Close: Cleans URL query
 const handleModalClose = (refresh) => {
   showModal.value = false;
   selectedCustomer.value = null;
+
+  // Remove '?action=add' from URL
+  if (route.query.action) {
+    router.replace({ query: null });
+  }
+
   if (refresh) fetchCustomers();
 };
 
@@ -241,7 +262,6 @@ onMounted(() => fetchCustomers());
                   >
                     <EyeIcon class="w-4 h-4" />
                   </button>
-
                   <button
                     @click="openEditModal(customer)"
                     class="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition"
@@ -249,7 +269,6 @@ onMounted(() => fetchCustomers());
                   >
                     <PencilSquareIcon class="w-4 h-4" />
                   </button>
-
                   <button
                     @click="deleteCustomer(customer.id)"
                     class="p-1.5 text-red-600 bg-red-50 rounded hover:bg-red-100 transition"

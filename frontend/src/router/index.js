@@ -9,6 +9,8 @@ import Customers from '../views/Customers.vue';
 import Settings from '../views/Settings.vue';
 import Attributes from '../views/Attributes.vue';
 import Suppliers from '../views/Suppliers.vue';
+import Purchases from '../views/Purchases.vue';
+import PurchaseCreate from '../views/PurchaseCreate.vue';
 
 const routes = [
     {
@@ -62,7 +64,18 @@ const routes = [
                 path: '/suppliers',
                 name: 'suppliers',
                 component: Suppliers
-            }
+            },
+            {
+                path: '/purchases',
+                name: 'purchases',
+                component: Purchases
+            },
+
+            {
+                path: '/purchases/create',
+                name: 'purchase-create',
+                component: PurchaseCreate
+            },
 
         ]
     },
