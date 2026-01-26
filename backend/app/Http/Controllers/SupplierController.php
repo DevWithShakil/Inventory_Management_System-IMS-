@@ -89,6 +89,8 @@ class SupplierController extends Controller
                 'name' => 'required|string|max:255',
                 'email' => 'nullable|email|max:255|unique:suppliers,email,' . $id,
                 'phone' => 'required|string|max:20|unique:suppliers,phone,' . $id,
+                'shop_name' => 'nullable|string|max:255',
+                'address' => 'nullable|string|max:255',
             ]);
 
             $supplier->update($request->all());

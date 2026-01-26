@@ -8,6 +8,7 @@ import Inventory from '../views/Inventory.vue';
 import Customers from '../views/Customers.vue';
 import Settings from '../views/Settings.vue';
 import Attributes from '../views/Attributes.vue';
+import Suppliers from '../views/Suppliers.vue';
 
 const routes = [
     {
@@ -56,6 +57,11 @@ const routes = [
                 path: '/attributes',
                 name: 'attributes',
                 component: Attributes
+            },
+            {
+                path: '/suppliers',
+                name: 'suppliers',
+                component: Suppliers
             }
 
         ]
