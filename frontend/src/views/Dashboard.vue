@@ -1,437 +1,504 @@
 <script setup>
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, watch } from "vue";
 import axios from "../axios";
+import VueApexCharts from "vue3-apexcharts";
 import {
-  BanknotesIcon,
+  CurrencyBangladeshiIcon,
   ShoppingBagIcon,
-  UsersIcon,
+  PresentationChartLineIcon,
   ArrowTrendingUpIcon,
+  ArrowTrendingDownIcon,
   ExclamationTriangleIcon,
-  CubeIcon,
-  ArrowPathIcon,
-  CalendarDaysIcon,
+  ClockIcon,
+  BanknotesIcon,
 } from "@heroicons/vue/24/outline";
 
-const user = JSON.parse(localStorage.getItem("user") || "{}");
-const role = user.role;
-const isAdmin = computed(() => role === "admin");
-
-// State
-const isLoading = ref(true);
-const selectedRange = ref("7days"); // ডিফল্ট ফিল্টার
-
-// Reactive Data Store
+// --- State ---
+const loading = ref(false);
+const filterRange = ref("today");
 const dashboardData = ref({
-  stats: { revenue: 0, orders: 0, customers: 0, growth: 0 },
-  chart: { categories: [], series: [] },
-  recent_orders: [],
+  metrics: { revenue: 0, orders: 0, expense: 0, profit: 0, growth: 0 },
   low_stock: [],
   top_products: [],
+  recent_sales: [],
 });
 
-// API Call Function
-const fetchDashboardData = async () => {
-  isLoading.value = true;
-  try {
-    // রেঞ্জ প্যারামিটার সহ রিকোয়েস্ট পাঠানো হচ্ছে
-    const response = await axios.get(
-      `/dashboard/overview?range=${selectedRange.value}`,
-    );
-
-    if (response.data.status) {
-      dashboardData.value = response.data.data;
-
-      // চার্ট আপডেট করা
-      chartOptions.value = {
-        ...chartOptions.value,
-        xaxis: {
-          ...chartOptions.value.xaxis,
-          categories: response.data.data.chart.categories,
-        },
-      };
-      series.value = response.data.data.chart.series;
-    }
-  } catch (error) {
-    console.error("Error fetching dashboard data:", error);
-  } finally {
-    isLoading.value = false;
-  }
-};
-
-// পেজ লোড হলে ডাটা আনবে
-onMounted(() => {
-  fetchDashboardData();
-});
-
-// Stats Cards Configuration
-const stats = computed(() => [
-  {
-    title: "Total Revenue",
-    value: `৳ ${dashboardData.value.stats.revenue}`,
-    change: `${dashboardData.value.stats.growth}%`,
-    trend: dashboardData.value.stats.growth >= 0 ? "up" : "down",
-    icon: BanknotesIcon,
-    iconColor: "text-emerald-600",
-    iconBg: "bg-emerald-50 dark:bg-emerald-500/10",
-  },
-  {
-    title: "Total Orders",
-    value: dashboardData.value.stats.orders,
-    change: "Lifetime",
-    trend: "up",
-    icon: ShoppingBagIcon,
-    iconColor: "text-blue-600",
-    iconBg: "bg-blue-50 dark:bg-blue-500/10",
-  },
-  {
-    title: "Total Customers",
-    value: dashboardData.value.stats.customers,
-    change: "Active",
-    trend: "up",
-    icon: UsersIcon,
-    iconColor: "text-violet-600",
-    iconBg: "bg-violet-50 dark:bg-violet-500/10",
-  },
-  {
-    title: "Growth Rate",
-    value: `${dashboardData.value.stats.growth}%`,
-    change: "vs Last Month",
-    trend: dashboardData.value.stats.growth >= 0 ? "up" : "down",
-    icon: ArrowTrendingUpIcon,
-    iconColor: "text-orange-600",
-    iconBg: "bg-orange-50 dark:bg-orange-500/10",
-  },
-]);
-
-// Chart Configuration
 const chartOptions = ref({
   chart: {
     type: "area",
-    toolbar: { show: false },
+    height: 350,
     fontFamily: "inherit",
-    background: "transparent",
+    toolbar: { show: false },
+    zoom: { enabled: false },
+    animations: {
+      enabled: true,
+      easing: "easeinout",
+      speed: 800,
+    },
   },
-  colors: ["#4F46E5", "#10B981"],
-  stroke: { curve: "smooth", width: 2 },
+  stroke: {
+    curve: "smooth",
+    width: 3,
+  },
+  colors: ["#6366F1", "#F43F5E"],
+
+  // 🔥 Gradient Fill for depth
+  fill: {
+    type: "gradient",
+    gradient: {
+      shadeIntensity: 1,
+      opacityFrom: 0.55,
+      opacityTo: 0.05,
+      stops: [0, 90, 100],
+    },
+  },
   dataLabels: { enabled: false },
-  fill: { type: "gradient", gradient: { opacityFrom: 0.4, opacityTo: 0.05 } },
   xaxis: {
     categories: [],
     axisBorder: { show: false },
     axisTicks: { show: false },
+    labels: {
+      style: { colors: "#9ca3af", fontSize: "12px" },
+    },
   },
-  yaxis: { show: true, tickAmount: 4 },
-  grid: { borderColor: "#e5e7eb", strokeDashArray: 4 },
-  theme: { mode: localStorage.getItem("theme") || "light" },
-  tooltip: { theme: "light" },
+  yaxis: {
+    labels: {
+      style: { colors: "#9ca3af", fontSize: "12px" },
+      formatter: (value) => {
+        if (value >= 1000000) return (value / 1000000).toFixed(1) + "M";
+        if (value >= 1000) return (value / 1000).toFixed(1) + "k";
+        return value;
+      },
+    },
+  },
+  grid: {
+    borderColor: "#f3f4f6",
+    strokeDashArray: 4,
+    padding: { top: 0, right: 0, bottom: 0, left: 10 },
+  },
+  tooltip: {
+    theme: "light",
+    y: {
+      formatter: function (val) {
+        return "৳ " + Number(val).toLocaleString();
+      },
+    },
+  },
+  legend: {
+    position: "top",
+    horizontalAlign: "right",
+  },
 });
 
-const series = ref([]);
+const chartSeries = ref([
+  { name: "Revenue", data: [] },
+  { name: "Cost of Sales", data: [] },
+]);
+
+// --- Fetch Data ---
+const fetchDashboardData = async () => {
+  loading.value = true;
+  try {
+    const response = await axios.get(
+      `/dashboard/overview?range=${filterRange.value}`,
+    );
+
+    if (response.data.status) {
+      const data = response.data.data;
+      dashboardData.value = data;
+
+      // Update Chart Data
+      chartOptions.value = {
+        ...chartOptions.value,
+        xaxis: {
+          ...chartOptions.value.xaxis,
+          categories: data.chart.categories,
+        },
+      };
+
+      chartSeries.value = [
+        { name: "Revenue", data: data.chart.series[0].data },
+        { name: "Cost of Sales", data: data.chart.series[1].data },
+      ];
+    }
+  } catch (error) {
+    console.error("Dashboard Error:", error);
+  } finally {
+    loading.value = false;
+  }
+};
+
+const getImageUrl = (path) => {
+  if (!path) return "https://placehold.co/100x100?text=No+Img";
+  if (path.startsWith("http")) return path;
+  return `http://localhost:8000/storage/${path}`;
+};
+
+// --- Watchers & Hooks ---
+watch(filterRange, () => {
+  fetchDashboardData();
+});
+
+onMounted(() => {
+  fetchDashboardData();
+});
 </script>
 
 <template>
-  <div class="space-y-6 pb-8">
+  <div class="space-y-6 pb-10">
     <div
-      class="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+      class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
     >
       <div>
-        <h2 class="text-2xl font-bold text-gray-800 dark:text-white">
+        <h1 class="text-2xl font-bold text-gray-800 dark:text-white">
           Dashboard Overview
-        </h2>
-        <p class="text-sm text-gray-500 dark:text-gray-400">
-          Welcome back, {{ user.name }}! Here is your store summary.
+        </h1>
+        <p class="text-sm text-gray-500">
+          Welcome back! Here's your store performance summary.
         </p>
       </div>
 
-      <div class="flex items-center gap-3">
-        <div class="relative">
-          <div
-            class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"
-          >
-            <CalendarDaysIcon class="h-4 w-4 text-gray-500" />
-          </div>
-          <select
-            v-model="selectedRange"
-            @change="fetchDashboardData"
-            class="pl-9 pr-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 block w-full outline-none shadow-sm cursor-pointer"
-          >
-            <option value="today">Today</option>
-            <option value="7days">Last 7 Days</option>
-            <option value="30days">Last 30 Days</option>
-            <option value="this_month">This Month</option>
-          </select>
-        </div>
-
-        <button
-          @click="fetchDashboardData"
-          class="p-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition shadow-sm"
-          title="Refresh Data"
+      <div class="relative">
+        <select
+          v-model="filterRange"
+          class="appearance-none bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-gray-200 py-2 pl-4 pr-10 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm cursor-pointer transition-shadow"
         >
-          <ArrowPathIcon
-            class="w-5 h-5 text-gray-500 dark:text-gray-400"
-            :class="{ 'animate-spin': isLoading }"
-          />
-        </button>
+          <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="last_7_days">Last 7 Days</option>
+          <option value="this_month">This Month</option>
+          <option value="last_month">Last Month</option>
+          <option value="all_time">All Time</option>
+        </select>
+        <div
+          class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500"
+        >
+          <ClockIcon class="w-4 h-4" />
+        </div>
       </div>
     </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       <div
-        v-for="stat in stats"
-        :key="stat.title"
-        class="bg-white dark:bg-slate-900 p-6 rounded-xl border border-gray-200 dark:border-slate-800 shadow-sm transition hover:shadow-md"
+        class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden transition-transform hover:-translate-y-1 duration-300"
       >
         <div class="flex justify-between items-start">
           <div>
-            <p class="text-sm font-medium text-gray-500 dark:text-gray-400">
-              {{ stat.title }}
+            <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">
+              Total Revenue
             </p>
-            <div
-              v-if="isLoading"
-              class="h-8 w-24 bg-gray-200 dark:bg-gray-800 rounded animate-pulse mt-2"
-            ></div>
             <h3
-              v-else
-              class="text-2xl font-bold text-gray-900 dark:text-white mt-2"
+              class="text-2xl font-extrabold text-gray-800 dark:text-white mt-1"
             >
-              {{ stat.value }}
+              ৳ {{ Number(dashboardData.metrics.revenue).toLocaleString() }}
             </h3>
           </div>
-          <div :class="`p-3 rounded-lg ${stat.iconBg}`">
-            <component :is="stat.icon" :class="`w-6 h-6 ${stat.iconColor}`" />
+          <div
+            class="p-3 bg-indigo-50 dark:bg-indigo-900/30 rounded-xl text-indigo-600 dark:text-indigo-400"
+          >
+            <CurrencyBangladeshiIcon class="w-6 h-6" />
           </div>
         </div>
-        <div v-if="!isLoading" class="mt-4 flex items-center text-sm">
-          <span
-            :class="
-              stat.trend === 'up'
-                ? 'text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10'
-                : 'text-red-600 bg-red-50 dark:bg-red-500/10'
+        <div
+          class="mt-4 flex items-center text-xs font-medium"
+          :class="
+            dashboardData.metrics.growth >= 0
+              ? 'text-green-600'
+              : 'text-red-500'
+          "
+        >
+          <component
+            :is="
+              dashboardData.metrics.growth >= 0
+                ? ArrowTrendingUpIcon
+                : ArrowTrendingDownIcon
             "
-            class="px-2 py-0.5 rounded text-xs font-bold mr-2"
+            class="w-3 h-3 mr-1"
+          />
+          <span>{{ Math.abs(dashboardData.metrics.growth) }}% vs Previous</span>
+        </div>
+      </div>
+
+      <div
+        class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 transition-transform hover:-translate-y-1 duration-300"
+      >
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">
+              Total Orders
+            </p>
+            <h3
+              class="text-2xl font-extrabold text-gray-800 dark:text-white mt-1"
+            >
+              {{ dashboardData.metrics.orders }}
+            </h3>
+          </div>
+          <div
+            class="p-3 bg-blue-50 dark:bg-blue-900/30 rounded-xl text-blue-600 dark:text-blue-400"
           >
-            {{ stat.change }}
-          </span>
-          <span class="text-gray-400 text-xs">Analytics</span>
+            <ShoppingBagIcon class="w-6 h-6" />
+          </div>
+        </div>
+        <div class="mt-4 flex items-center text-xs font-medium text-gray-500">
+          <ClockIcon class="w-3 h-3 mr-1" />
+          <span>{{ filterRange.replace("_", " ") }}</span>
+        </div>
+      </div>
+
+      <div
+        class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 transition-transform hover:-translate-y-1 duration-300"
+      >
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">
+              Cost of Sales
+            </p>
+            <h3
+              class="text-2xl font-extrabold text-gray-800 dark:text-white mt-1"
+            >
+              ৳ {{ Number(dashboardData.metrics.expense).toLocaleString() }}
+            </h3>
+          </div>
+          <div
+            class="p-3 bg-rose-50 dark:bg-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400"
+          >
+            <BanknotesIcon class="w-6 h-6" />
+          </div>
+        </div>
+        <div class="mt-4 flex items-center text-xs font-medium text-rose-600">
+          <span class="px-2 py-0.5 rounded bg-rose-100 text-rose-700"
+            >COGS</span
+          >
+          <span class="ml-2">Product Cost</span>
+        </div>
+      </div>
+
+      <div
+        class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 transition-transform hover:-translate-y-1 duration-300"
+      >
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">
+              Gross Profit
+            </p>
+            <h3
+              class="text-2xl font-extrabold mt-1"
+              :class="
+                dashboardData.metrics.profit >= 0
+                  ? 'text-gray-800 dark:text-white'
+                  : 'text-red-500'
+              "
+            >
+              ৳ {{ Number(dashboardData.metrics.profit).toLocaleString() }}
+            </h3>
+          </div>
+          <div
+            class="p-3 bg-emerald-50 dark:bg-emerald-900/30 rounded-xl text-emerald-600 dark:text-emerald-400"
+          >
+            <PresentationChartLineIcon class="w-6 h-6" />
+          </div>
+        </div>
+        <div
+          class="mt-4 flex items-center text-xs font-medium text-emerald-600"
+        >
+          <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700"
+            >Margin</span
+          >
+          <span class="ml-2">Rev - Cost</span>
         </div>
       </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div class="lg:col-span-2 space-y-6">
-        <div
-          class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 shadow-sm p-6"
-        >
-          <div class="flex justify-between items-center mb-6">
-            <h3 class="text-lg font-bold text-gray-800 dark:text-white">
-              Revenue Analytics
-            </h3>
-            <span
-              class="text-xs font-medium px-2 py-1 bg-gray-100 dark:bg-slate-800 rounded text-gray-500 capitalize"
-              >{{ selectedRange.replace("_", " ") }}</span
-            >
-          </div>
-          <div
-            v-if="isLoading"
-            class="h-[300px] bg-gray-100 dark:bg-gray-800 animate-pulse rounded"
-          ></div>
-          <apexchart
-            v-else
+      <div
+        class="lg:col-span-2 bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700"
+      >
+        <h3 class="font-bold text-gray-800 dark:text-white mb-4">
+          Revenue vs Cost Analytics
+        </h3>
+        <div class="h-80">
+          <VueApexCharts
             type="area"
-            height="300"
+            height="100%"
             :options="chartOptions"
-            :series="series"
-          ></apexchart>
-        </div>
-
-        <div
-          class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 shadow-sm p-6"
-        >
-          <div class="flex justify-between items-center mb-6">
-            <h3 class="text-lg font-bold text-gray-800 dark:text-white">
-              Recent Orders
-            </h3>
-            <router-link
-              to="/sales"
-              class="text-sm font-medium text-indigo-600 hover:text-indigo-500"
-            >
-              View All
-            </router-link>
-          </div>
-
-          <div v-if="isLoading" class="space-y-4">
-            <div
-              v-for="i in 5"
-              :key="i"
-              class="h-12 bg-gray-100 dark:bg-gray-800 animate-pulse rounded"
-            ></div>
-          </div>
-
-          <div v-else class="space-y-3">
-            <div
-              v-for="order in dashboardData.recent_orders"
-              :key="order.id"
-              class="flex items-center justify-between p-3 bg-gray-50 dark:bg-slate-800/50 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 transition border border-transparent hover:border-gray-200 dark:hover:border-slate-700"
-            >
-              <div class="flex items-center gap-3">
-                <div
-                  class="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold text-xs"
-                >
-                  {{ order.customer.charAt(0) }}
-                </div>
-                <div>
-                  <p
-                    class="text-sm font-semibold text-gray-800 dark:text-white"
-                  >
-                    {{ order.customer }}
-                  </p>
-                  <p class="text-xs text-gray-500">
-                    {{ order.id }} • {{ order.date }}
-                  </p>
-                </div>
-              </div>
-              <div class="text-right">
-                <p class="text-sm font-bold text-gray-800 dark:text-white">
-                  {{ order.amount }}
-                </p>
-                <span
-                  class="text-[10px] px-2 py-0.5 rounded-full font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20"
-                >
-                  {{ order.status }}
-                </span>
-              </div>
-            </div>
-            <p
-              v-if="dashboardData.recent_orders.length === 0"
-              class="text-center text-gray-500 text-sm py-4"
-            >
-              No recent orders found.
-            </p>
-          </div>
+            :series="chartSeries"
+          />
         </div>
       </div>
 
-      <div class="space-y-6">
-        <div
-          class="bg-white dark:bg-slate-900 rounded-xl border border-red-100 dark:border-red-900/30 shadow-sm p-6 relative overflow-hidden"
-        >
-          <div class="absolute top-0 right-0 p-4 opacity-10">
-            <ExclamationTriangleIcon class="w-24 h-24 text-red-500" />
-          </div>
+      <div
+        class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 flex flex-col"
+      >
+        <div class="flex justify-between items-center mb-4">
           <h3
-            class="text-lg font-bold text-red-600 dark:text-red-400 flex items-center gap-2 mb-4 relative z-10"
+            class="font-bold text-gray-800 dark:text-white flex items-center gap-2"
           >
-            <ExclamationTriangleIcon class="w-5 h-5" /> Low Stock Alerts
+            <ExclamationTriangleIcon class="w-5 h-5 text-amber-500" />
+            Low Stock Alerts
           </h3>
+          <span
+            class="px-2 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full"
+          >
+            {{ dashboardData.low_stock.length }} Items
+          </span>
+        </div>
 
-          <div v-if="isLoading" class="space-y-3">
-            <div
-              v-for="i in 3"
-              :key="i"
-              class="h-10 bg-gray-100 dark:bg-gray-800 animate-pulse rounded"
-            ></div>
+        <div class="space-y-4 overflow-y-auto custom-scrollbar flex-1">
+          <div
+            v-if="dashboardData.low_stock.length === 0"
+            class="h-full flex flex-col items-center justify-center text-gray-400 text-sm"
+          >
+            <ShoppingBagIcon class="w-8 h-8 mb-2 opacity-50" />
+            All stock levels are healthy!
           </div>
-
-          <div v-else class="space-y-3 relative z-10">
-            <div
-              v-for="product in dashboardData.low_stock"
-              :key="product.id"
-              class="flex items-center justify-between p-2.5 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/20"
-            >
-              <div class="flex items-center gap-3 overflow-hidden">
-                <div
-                  class="w-10 h-10 rounded bg-white dark:bg-slate-800 flex-shrink-0 flex items-center justify-center border border-red-100 dark:border-red-900/30"
-                >
-                  <img
-                    v-if="product.image"
-                    :src="product.image"
-                    class="w-full h-full object-cover rounded"
-                  />
-                  <CubeIcon v-else class="w-5 h-5 text-red-400" />
-                </div>
-                <div class="min-w-0">
-                  <h4
-                    class="text-sm font-bold text-gray-800 dark:text-white truncate"
-                  >
-                    {{ product.name }}
-                  </h4>
-                  <p class="text-xs text-red-500 font-medium">
-                    Alert: {{ product.alert_quantity }}
-                  </p>
-                </div>
-              </div>
-              <span
-                class="text-xs font-bold text-red-600 bg-white dark:bg-slate-900 px-2 py-1 rounded shadow-sm border border-red-100 dark:border-red-900/30 whitespace-nowrap"
+          <div
+            v-for="product in dashboardData.low_stock"
+            :key="product.id"
+            class="flex items-center gap-3 p-3 bg-gray-50 dark:bg-slate-700/50 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-600 transition"
+          >
+            <img
+              :src="getImageUrl(product.image)"
+              class="w-12 h-12 rounded-lg object-cover border border-gray-200"
+              @error="$event.target.src = 'https://placehold.co/100?text=Err'"
+            />
+            <div class="flex-1 min-w-0">
+              <h4
+                class="text-sm font-bold text-gray-800 dark:text-white truncate"
               >
-                Qty: {{ product.stock_quantity }}
-              </span>
-            </div>
-
-            <div
-              v-if="!dashboardData.low_stock?.length"
-              class="text-center py-4 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-900/20"
-            >
-              <p class="text-sm font-bold text-green-600 dark:text-green-400">
-                All stocks are healthy! 🎉
+                {{ product.name }}
+              </h4>
+              <p class="text-xs text-gray-500">
+                Alert Limit: {{ product.alert_quantity }}
               </p>
+            </div>
+            <div class="text-right">
+              <span class="block text-lg font-bold text-red-500">{{
+                product.stock_quantity
+              }}</span>
+              <span class="text-[10px] text-gray-400">Left</span>
             </div>
           </div>
         </div>
+      </div>
+    </div>
 
-        <div
-          class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 shadow-sm p-6"
-        >
-          <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-6">
-            🏆 Top Selling Products
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div
+        class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden"
+      >
+        <div class="p-6 border-b border-gray-100 dark:border-slate-700">
+          <h3 class="font-bold text-gray-800 dark:text-white">
+            Top Selling Products
           </h3>
-
-          <div v-if="isLoading" class="space-y-4">
-            <div
-              v-for="i in 4"
-              :key="i"
-              class="h-10 bg-gray-100 dark:bg-gray-800 animate-pulse rounded"
-            ></div>
-          </div>
-
-          <div v-else class="space-y-5">
-            <div
-              v-for="(product, index) in dashboardData.top_products"
-              :key="index"
-              class="flex items-center justify-between group"
+        </div>
+        <div class="p-0">
+          <table class="w-full text-left text-sm">
+            <thead
+              class="bg-gray-50 dark:bg-slate-700/50 text-gray-500 font-medium"
             >
-              <div class="flex items-center gap-3 flex-1 min-w-0">
-                <span class="text-sm font-bold text-gray-400 w-5"
-                  >#{{ index + 1 }}</span
-                >
-                <div class="flex-1 min-w-0">
-                  <p
-                    class="text-sm font-semibold text-gray-800 dark:text-white truncate group-hover:text-indigo-600 transition"
-                  >
-                    {{ product.name }}
-                  </p>
-                  <div
-                    class="w-full h-1.5 bg-gray-100 dark:bg-slate-800 rounded-full mt-1.5 overflow-hidden"
-                  >
-                    <div
-                      class="h-full bg-indigo-500 rounded-full"
-                      :style="`width: ${Math.min(product.total_sold, 100)}%`"
-                    ></div>
-                  </div>
-                </div>
-              </div>
-              <span
-                class="ml-2 text-xs font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded whitespace-nowrap"
+              <tr>
+                <th class="px-6 py-3">Product</th>
+                <th class="px-6 py-3 text-right">Sold Qty</th>
+                <th class="px-6 py-3 text-right">Stock</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
+              <tr v-if="dashboardData.top_products.length === 0">
+                <td colspan="3" class="px-6 py-8 text-center text-gray-400">
+                  No sales in this period.
+                </td>
+              </tr>
+              <tr
+                v-for="product in dashboardData.top_products"
+                :key="product.id"
+                class="hover:bg-gray-50 dark:hover:bg-slate-700/50 transition"
               >
-                {{ product.total_sold }} sold
-              </span>
-            </div>
-            <p
-              v-if="!dashboardData.top_products?.length"
-              class="text-center text-gray-500 text-sm py-2"
+                <td class="px-6 py-3">
+                  <div class="flex items-center gap-3">
+                    <img
+                      :src="getImageUrl(product.image)"
+                      class="w-8 h-8 rounded-md object-cover border"
+                    />
+                    <span class="font-medium text-gray-800 dark:text-white">{{
+                      product.name
+                    }}</span>
+                  </div>
+                </td>
+                <td class="px-6 py-3 text-right font-bold text-indigo-600">
+                  {{ product.total_sold }}
+                </td>
+                <td class="px-6 py-3 text-right text-gray-500">
+                  {{ product.stock_quantity }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div
+        class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden"
+      >
+        <div
+          class="p-6 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center"
+        >
+          <h3 class="font-bold text-gray-800 dark:text-white">
+            Recent Transactions
+          </h3>
+          <router-link
+            to="/sales"
+            class="text-sm text-indigo-600 font-bold hover:underline"
+          >
+            View All
+          </router-link>
+        </div>
+        <div class="p-0">
+          <table class="w-full text-left text-sm">
+            <thead
+              class="bg-gray-50 dark:bg-slate-700/50 text-gray-500 font-medium"
             >
-              No sales data yet.
-            </p>
-          </div>
+              <tr>
+                <th class="px-6 py-3">Invoice</th>
+                <th class="px-6 py-3">Customer</th>
+                <th class="px-6 py-3 text-right">Amount</th>
+                <th class="px-6 py-3 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-slate-700">
+              <tr v-if="dashboardData.recent_sales.length === 0">
+                <td colspan="4" class="px-6 py-8 text-center text-gray-400">
+                  No recent transactions.
+                </td>
+              </tr>
+              <tr
+                v-for="sale in dashboardData.recent_sales"
+                :key="sale.id"
+                class="hover:bg-gray-50 dark:hover:bg-slate-700/50 transition"
+              >
+                <td class="px-6 py-3 font-mono text-xs text-gray-500">
+                  {{ sale.invoice_no }}
+                </td>
+                <td class="px-6 py-3 font-medium text-gray-800 dark:text-white">
+                  {{ sale.customer?.name || "Walk-in" }}
+                </td>
+                <td class="px-6 py-3 text-right font-bold">
+                  ৳ {{ Number(sale.grand_total).toLocaleString() }}
+                </td>
+                <td class="px-6 py-3 text-center">
+                  <span
+                    class="px-2 py-1 rounded-full text-xs font-bold"
+                    :class="
+                      sale.payment_status === 'paid'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-amber-100 text-amber-700'
+                    "
+                  >
+                    {{ sale.payment_status }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

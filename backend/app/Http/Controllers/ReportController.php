@@ -6,198 +6,222 @@ use Illuminate\Http\Request;
 use App\Models\Sale;
 use App\Models\Purchase;
 use App\Models\Product;
-use App\Models\Customer;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ReportController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
-   /**
-     * Display a listing of the resource.
-     */
     public function dashboardOverview(Request $request)
     {
         try {
-            $range = $request->range ?? '7days';
-            $endDate = Carbon::now();
-            $startDate = Carbon::now()->subDays(6);
-            $dateFormat = 'D';
+            $range = $request->query('range', 'today');
 
-            if ($range === 'today') {
-                $startDate = Carbon::today();
-                $endDate = Carbon::now()->endOfDay();
-                $dateFormat = 'h:i A';
-            } elseif ($range === '30days') {
-                $startDate = Carbon::now()->subDays(29);
-                $dateFormat = 'd M'; // 12 Jan
-            } elseif ($range === 'this_month') {
-                $startDate = Carbon::now()->startOfMonth();
-                $dateFormat = 'd M';
+            $startDate = null;
+            $endDate = Carbon::now()->endOfDay();
+            $previousStartDate = null;
+            $previousEndDate = null;
+
+            switch ($range) {
+                case 'today':
+                    $startDate = Carbon::today();
+                    $previousStartDate = Carbon::yesterday();
+                    $previousEndDate = Carbon::yesterday()->endOfDay();
+                    break;
+                case 'yesterday':
+                    $startDate = Carbon::yesterday();
+                    $endDate = Carbon::yesterday()->endOfDay();
+                    $previousStartDate = Carbon::today()->subDays(2);
+                    $previousEndDate = Carbon::today()->subDays(2)->endOfDay();
+                    break;
+                case 'last_7_days':
+                    $startDate = Carbon::now()->subDays(6)->startOfDay();
+                    $previousStartDate = Carbon::now()->subDays(13)->startOfDay();
+                    $previousEndDate = Carbon::now()->subDays(7)->endOfDay();
+                    break;
+                case 'this_month':
+                    $startDate = Carbon::now()->startOfMonth();
+                    $previousStartDate = Carbon::now()->subMonth()->startOfMonth();
+                    $previousEndDate = Carbon::now()->subMonth()->endOfMonth();
+                    break;
+                case 'last_month':
+                    $startDate = Carbon::now()->subMonth()->startOfMonth();
+                    $endDate = Carbon::now()->subMonth()->endOfMonth();
+                    $previousStartDate = Carbon::now()->subMonths(2)->startOfMonth();
+                    $previousEndDate = Carbon::now()->subMonths(2)->endOfMonth();
+                    break;
+                case 'all_time':
+                    $startDate = Carbon::create(2000, 1, 1);
+                    break;
+                default:
+                    $startDate = Carbon::today();
             }
 
-            $totalRevenue = Sale::sum('grand_total');
-            $totalOrders = Sale::count();
-            $totalCustomers = Customer::count();
+            $totalRevenue = Sale::whereBetween('date', [$startDate, $endDate])->sum('grand_total');
+            $totalOrders = Sale::whereBetween('date', [$startDate, $endDate])->count();
 
-            $currentMonthSales = Sale::whereMonth('created_at', Carbon::now()->month)->sum('grand_total');
-            $lastMonthSales = Sale::whereMonth('created_at', Carbon::now()->subMonth()->month)->sum('grand_total');
+            $costOfGoodsSold = DB::table('sale_items')
+                ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                ->join('products', 'products.id', '=', 'sale_items.product_id')
+                ->whereBetween('sales.date', [$startDate, $endDate])
+                ->sum(DB::raw('sale_items.quantity * products.cost_price'));
 
+            $grossProfit = $totalRevenue - $costOfGoodsSold;
+            $metricExpense = $costOfGoodsSold;
+
+            $previousRevenue = Sale::whereBetween('date', [$previousStartDate, $previousEndDate])->sum('grand_total');
             $growth = 0;
-            if ($lastMonthSales > 0) {
-                $growth = (($currentMonthSales - $lastMonthSales) / $lastMonthSales) * 100;
+            if ($previousRevenue > 0) {
+                $growth = (($totalRevenue - $previousRevenue) / $previousRevenue) * 100;
             } else {
-                $growth = $currentMonthSales > 0 ? 100 : 0;
+                $growth = $totalRevenue > 0 ? 100 : 0;
             }
-
-            $dates = [];
-            $sales = [];
-            $orders = [];
-
-            if ($range === 'today') {
-
-                $period = \Carbon\CarbonPeriod::create($startDate, $endDate);
-            } else {
-                $period = \Carbon\CarbonPeriod::create($startDate, $endDate);
-            }
-
-            foreach ($period as $date) {
-                $formattedDate = $date->format('Y-m-d');
-
-                $dailySale = Sale::whereDate('created_at', $formattedDate)->sum('grand_total');
-                $dailyOrderCount = Sale::whereDate('created_at', $formattedDate)->count();
-
-                $dates[] = $date->format($dateFormat);
-                $sales[] = $dailySale;
-                $orders[] = $dailyOrderCount;
-            }
-
-            $recentOrders = Sale::with('customer')
-                ->latest()
-                ->take(5)
-                ->get()
-                ->map(function ($sale) {
-                    return [
-                        'id' => '#ORD-' . str_pad($sale->id, 4, '0', STR_PAD_LEFT),
-                        'customer' => $sale->customer ? $sale->customer->name : 'Walk-in Customer',
-                        'amount' => '৳ ' . number_format($sale->grand_total, 2),
-                        'status' => $sale->payment_status ?? 'Completed',
-                        'date' => $sale->created_at->diffForHumans()
-                    ];
-                });
-
 
             $lowStockProducts = Product::whereColumn('stock_quantity', '<=', 'alert_quantity')
-                ->select('id', 'name', 'stock_quantity', 'alert_quantity', 'image')
+                ->select('id', 'name', 'stock_quantity', 'alert_quantity', 'image', 'sku')
                 ->take(5)
                 ->get();
-
 
             $topProducts = DB::table('sale_items')
-                ->join('products', 'sale_items.product_id', '=', 'products.id')
-                ->select('products.name', 'products.image', DB::raw('SUM(sale_items.quantity) as total_sold'))
-                ->groupBy('sale_items.product_id', 'products.name', 'products.image')
+                ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                ->join('products', 'products.id', '=', 'sale_items.product_id')
+                ->whereBetween('sales.date', [$startDate, $endDate])
+                ->select(
+                    'products.name',
+                    'products.image',
+                    'products.stock_quantity',
+                    DB::raw('SUM(sale_items.quantity) as total_sold')
+                )
+                ->groupBy('products.id', 'products.name', 'products.image', 'products.stock_quantity')
                 ->orderByDesc('total_sold')
-                ->take(5)
+                ->limit(5)
                 ->get();
+
+            $recentSales = Sale::with('customer')
+                ->latest()
+                ->limit(6)
+                ->get();
+
+            $chartData = $this->generateChartData($startDate, $endDate, $range);
 
             return response()->json([
                 'status' => true,
-                'message' => 'Dashboard data retrieved successfully',
                 'data' => [
-                    'stats' => [
-                        'revenue' => number_format($totalRevenue, 2),
+                    'metrics' => [
+                        'revenue' => $totalRevenue,
                         'orders' => $totalOrders,
-                        'customers' => $totalCustomers,
+                        'expense' => $metricExpense,
+                        'profit' => $grossProfit,
                         'growth' => round($growth, 1)
                     ],
-                    'chart' => [
-                        'categories' => $dates,
-                        'series' => [
-                            ['name' => 'Revenue', 'data' => $sales],
-                            ['name' => 'Orders', 'data' => $orders]
-                        ]
-                    ],
-                    'recent_orders' => $recentOrders,
                     'low_stock' => $lowStockProducts,
-                    'top_products' => $topProducts
+                    'top_products' => $topProducts,
+                    'recent_sales' => $recentSales,
+                    'chart' => $chartData,
+                    'filter_label' => ucfirst(str_replace('_', ' ', $range))
                 ]
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Dashboard Fetch Error: ' . $e->getMessage());
-            return response()->json(['status' => false, 'message' => 'Error loading dashboard'], 500);
+            Log::error('Dashboard Error: ' . $e->getMessage());
+            return response()->json(['status' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
+    private function generateChartData($startDate, $endDate, $range)
+    {
+        $categories = [];
+        $revenues = [];
+        $costs = [];
+
+        if ($range === 'today') {
+            for ($i = 0; $i <= 23; $i++) {
+                $hourStart = Carbon::today()->setTime($i, 0, 0);
+                $hourEnd = Carbon::today()->setTime($i, 59, 59);
+
+                $categories[] = $hourStart->format('h A');
+
+                $revenues[] = Sale::whereBetween('date', [$hourStart, $hourEnd])->sum('grand_total');
+
+                $costs[] = DB::table('sale_items')
+                    ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                    ->join('products', 'products.id', '=', 'sale_items.product_id')
+                    ->whereBetween('sales.date', [$hourStart, $hourEnd])
+                    ->sum(DB::raw('sale_items.quantity * products.cost_price'));
+            }
+        }
+        elseif ($range === 'all_time' || Carbon::parse($startDate)->diffInDays($endDate) > 90) {
+
+            $salesData = Sale::whereBetween('date', [$startDate, $endDate])
+                ->selectRaw("DATE_FORMAT(date, '%Y-%m') as month, SUM(grand_total) as total")
+                ->groupBy('month')
+                ->pluck('total', 'month');
+
+            $costData = DB::table('sale_items')
+                ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                ->join('products', 'products.id', '=', 'sale_items.product_id')
+                ->whereBetween('sales.date', [$startDate, $endDate])
+                ->selectRaw("DATE_FORMAT(sales.date, '%Y-%m') as month, SUM(sale_items.quantity * products.cost_price) as total_cost")
+                ->groupBy('month')
+                ->pluck('total_cost', 'month');
+
+            $period = CarbonPeriod::create($startDate, '1 month', $endDate);
+
+            foreach ($period as $date) {
+                $monthKey = $date->format('Y-m');
+                $categories[] = $date->format('M Y');
+
+                $revenues[] = $salesData[$monthKey] ?? 0;
+                $costs[] = $costData[$monthKey] ?? 0;
+            }
+        }
+        else {
+            $period = CarbonPeriod::create($startDate, $endDate);
+
+            $salesData = Sale::whereBetween('date', [$startDate, $endDate])
+                ->selectRaw('DATE(date) as date, SUM(grand_total) as total')
+                ->groupBy('date')
+                ->pluck('total', 'date');
+
+            $costData = DB::table('sale_items')
+                ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                ->join('products', 'products.id', '=', 'sale_items.product_id')
+                ->whereBetween('sales.date', [$startDate, $endDate])
+                ->selectRaw('DATE(sales.date) as date, SUM(sale_items.quantity * products.cost_price) as total_cost')
+                ->groupBy('date')
+                ->pluck('total_cost', 'date');
+
+            foreach ($period as $date) {
+                $formatDate = $date->format('Y-m-d');
+                $categories[] = $date->format('d M');
+
+                $revenues[] = $salesData[$formatDate] ?? 0;
+                $costs[] = $costData[$formatDate] ?? 0;
+            }
+        }
+
+        return [
+            'categories' => $categories,
+            'series' => [
+                ['name' => 'Revenue', 'data' => $revenues],
+                ['name' => 'Cost of Sales', 'data' => $costs]
+            ]
+        ];
+    }
+
     public function lowStockReport()
     {
-        try {
-            $products = Product::with(['category', 'unit'])
-                ->whereColumn('stock_quantity', '<=', 'alert_quantity')
-                ->get();
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Low stock report retrieved successfully',
-                'data' => $products
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Low Stock Report Fetch Error: ' . $e->getMessage());
-            return response()->json(['status' => false, 'message' => 'Error fetching stock report'], 500);
-        }
+        return response()->json([
+            'status' => true,
+            'data' => Product::whereColumn('stock_quantity', '<=', 'alert_quantity')->get()
+        ]);
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function dailySalesReport(Request $request)
     {
-        try {
-            $date = $request->date ?? Carbon::today();
-
-            $sales = Sale::with(['customer', 'creator'])
-                ->whereDate('date', $date)
-                ->latest()
-                ->get();
-
-            $totalAmount = $sales->sum('grand_total');
-
-            return response()->json([
-                'status' => true,
-                'meta' => [
-                    'date' => $date,
-                    'total_sales_amount' => $totalAmount,
-                    'total_invoices' => $sales->count()
-                ],
-                'data' => $sales
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Daily Sales Report Fetch Error: ' . $e->getMessage());
-            return response()->json(['status' => false, 'message' => 'Error fetching sales report'], 500);
-        }
-    }
-
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id)
-    {
-        //
-    }
-
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
-    {
-        //
+         $date = $request->date ?? Carbon::today();
+         $sales = Sale::with(['customer', 'creator'])->whereDate('date', $date)->latest()->get();
+         return response()->json(['status' => true, 'data' => $sales]);
     }
 }
