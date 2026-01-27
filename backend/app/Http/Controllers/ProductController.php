@@ -256,12 +256,12 @@ class ProductController extends Controller
 
         if (($handle = fopen($file->getPathname(), 'r')) !== false) {
 
-            fgetcsv($handle); // Skip Header
+            fgetcsv($handle);
 
             DB::beginTransaction();
 
             try {
-                // ১. সাপ্লায়ার তৈরি বা খুঁজে বের করা
+
                 $supplier = Supplier::firstOrCreate(
                     ['name' => 'Bulk Import History'],
                     [
@@ -271,7 +271,7 @@ class ProductController extends Controller
                     ]
                 );
 
-                // ২. Purchase রেকর্ড তৈরি (Schema অনুযায়ী ফিক্সড)
+
                 $purchase = Purchase::create([
                     'date'         => now()->format('Y-m-d'),
                     'reference_no' => 'CSV-' . time(),
@@ -281,7 +281,7 @@ class ProductController extends Controller
                     'grand_total'  => 0,
                     'tax'          => 0,
                     'discount'     => 0,
-                    'created_by'   => auth()->id() ?? 1, // 🔥 বাধ্যতামূলক: যে ইউজার লগিন আছে, অথবা ID 1
+                    'created_by'   => auth()->id() ?? 1,
                 ]);
 
                 $grandTotal = 0;
@@ -299,13 +299,13 @@ class ProductController extends Controller
                     $stock          = (int) $row[7];
                     $alertQty       = $row[8] ?? 5;
 
-                    // Category
+
                     $category = Category::firstOrCreate(
                         ['name' => $categoryName],
                         ['slug' => Str::slug($categoryName), 'status' => true]
                     );
 
-                    // Brand
+
                     $brand = null;
                     if ($brandName) {
                         $brand = Brand::firstOrCreate(
@@ -314,13 +314,13 @@ class ProductController extends Controller
                         );
                     }
 
-                    // Unit
+
                     $unit = Unit::firstOrCreate(
                         ['name' => $unitName ?? 'pcs'],
                         ['short_name' => substr($unitName ?? 'pcs', 0, 10)]
                     );
 
-                    // ৩. Product Update/Create
+
                     $product = Product::updateOrCreate(
                         ['sku' => $sku],
                         [
@@ -336,7 +336,6 @@ class ProductController extends Controller
                         ]
                     );
 
-                    // ৪. Purchase Item এন্ট্রি
                     if ($stock > 0) {
                         $lineTotal = $costPrice * $stock;
                         $grandTotal += $lineTotal;
@@ -346,12 +345,12 @@ class ProductController extends Controller
                             'product_id'  => $product->id,
                             'quantity'    => $stock,
                             'unit_cost'   => $costPrice,
-                            'subtotal'    => $lineTotal // Schema অনুযায়ী নাম 'subtotal'
+                            'subtotal'    => $lineTotal,
                         ]);
                     }
                 }
 
-                // ৫. Purchase এর টোটাল আপডেট করা
+                // ৫. Purchase
                 $purchase->update([
                     'subtotal'    => $grandTotal,
                     'grand_total' => $grandTotal,

@@ -135,26 +135,39 @@ class ReportController extends Controller
         $revenues = [];
         $costs = [];
 
+        // 🟢 TODAY: Hour by Hour View (Optimized for PostgreSQL)
         if ($range === 'today') {
+
+            // ১. ডাটাবেস থেকে সব ডাটা একবারে নিয়ে আসা (Hour Grouping)
+            // আমরা 'date' এর বদলে 'created_at' ব্যবহার করছি কারণ এতে Time থাকে
+            $salesData = Sale::whereBetween('created_at', [$startDate, $endDate])
+                ->selectRaw('EXTRACT(HOUR FROM created_at) as hour, SUM(grand_total) as total')
+                ->groupBy('hour')
+                ->pluck('total', 'hour');
+
+            $costData = DB::table('sale_items')
+                ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                ->join('products', 'products.id', '=', 'sale_items.product_id')
+                ->whereBetween('sales.created_at', [$startDate, $endDate])
+                ->selectRaw('EXTRACT(HOUR FROM sales.created_at) as hour, SUM(sale_items.quantity * products.cost_price) as total_cost')
+                ->groupBy('hour')
+                ->pluck('total_cost', 'hour');
+
+            // ২. লুপ চালিয়ে ২৪ ঘন্টার ডাটা সাজানো (ডাটাবেস কুয়েরি ছাড়া)
             for ($i = 0; $i <= 23; $i++) {
-                $hourStart = Carbon::today()->setTime($i, 0, 0);
-                $hourEnd = Carbon::today()->setTime($i, 59, 59);
+                // Hour format (Example: 01 PM)
+                $categories[] = Carbon::createFromTime($i, 0)->format('h A');
 
-                $categories[] = $hourStart->format('h A');
-
-                $revenues[] = Sale::whereBetween('date', [$hourStart, $hourEnd])->sum('grand_total');
-
-                $costs[] = DB::table('sale_items')
-                    ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
-                    ->join('products', 'products.id', '=', 'sale_items.product_id')
-                    ->whereBetween('sales.date', [$hourStart, $hourEnd])
-                    ->sum(DB::raw('sale_items.quantity * products.cost_price'));
+                // যদি এই ঘন্টায় সেল থাকে বসাবে, না থাকলে ০
+                $revenues[] = $salesData[(int)$i] ?? 0;
+                $costs[] = $costData[(int)$i] ?? 0;
             }
         }
+        // 🟡 Monthly View (Large Range)
         elseif ($range === 'all_time' || Carbon::parse($startDate)->diffInDays($endDate) > 90) {
 
             $salesData = Sale::whereBetween('date', [$startDate, $endDate])
-                ->selectRaw("DATE_FORMAT(date, '%Y-%m') as month, SUM(grand_total) as total")
+                ->selectRaw("TO_CHAR(date, 'YYYY-MM') as month, SUM(grand_total) as total")
                 ->groupBy('month')
                 ->pluck('total', 'month');
 
@@ -162,7 +175,7 @@ class ReportController extends Controller
                 ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
                 ->join('products', 'products.id', '=', 'sale_items.product_id')
                 ->whereBetween('sales.date', [$startDate, $endDate])
-                ->selectRaw("DATE_FORMAT(sales.date, '%Y-%m') as month, SUM(sale_items.quantity * products.cost_price) as total_cost")
+                ->selectRaw("TO_CHAR(sales.date, 'YYYY-MM') as month, SUM(sale_items.quantity * products.cost_price) as total_cost")
                 ->groupBy('month')
                 ->pluck('total_cost', 'month');
 
@@ -176,21 +189,22 @@ class ReportController extends Controller
                 $costs[] = $costData[$monthKey] ?? 0;
             }
         }
+        // 🔵 Daily View (Standard Range)
         else {
             $period = CarbonPeriod::create($startDate, $endDate);
 
             $salesData = Sale::whereBetween('date', [$startDate, $endDate])
-                ->selectRaw('DATE(date) as date, SUM(grand_total) as total')
-                ->groupBy('date')
-                ->pluck('total', 'date');
+                ->selectRaw('CAST(date AS DATE) as day, SUM(grand_total) as total')
+                ->groupBy('day')
+                ->pluck('total', 'day');
 
             $costData = DB::table('sale_items')
                 ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
                 ->join('products', 'products.id', '=', 'sale_items.product_id')
                 ->whereBetween('sales.date', [$startDate, $endDate])
-                ->selectRaw('DATE(sales.date) as date, SUM(sale_items.quantity * products.cost_price) as total_cost')
-                ->groupBy('date')
-                ->pluck('total_cost', 'date');
+                ->selectRaw('CAST(sales.date AS DATE) as day, SUM(sale_items.quantity * products.cost_price) as total_cost')
+                ->groupBy('day')
+                ->pluck('total_cost', 'day');
 
             foreach ($period as $date) {
                 $formatDate = $date->format('Y-m-d');
