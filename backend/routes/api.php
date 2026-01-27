@@ -69,5 +69,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // User Management
         Route::apiResource('users', UserController::class);
+
+        // Import Products
+        Route::post('/products/import', [ProductController::class, 'import']);
     });
 });

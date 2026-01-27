@@ -13,6 +13,7 @@ import {
   ArrowDownTrayIcon,
   ExclamationTriangleIcon,
   Squares2X2Icon,
+  DocumentArrowUpIcon, // Added Icon
 } from "@heroicons/vue/24/outline";
 
 const route = useRoute();
@@ -22,6 +23,12 @@ const router = useRouter();
 const products = ref([]);
 const categories = ref([]);
 const isLoading = ref(false);
+
+// Import State
+const showImportModal = ref(false);
+const selectedFile = ref(null);
+const uploading = ref(false);
+const fileInput = ref(null);
 
 // Filters State
 const filters = ref({
@@ -106,6 +113,46 @@ const deleteProduct = async (id) => {
   }
 };
 
+// --- Import Logic ---
+const openImportModal = () => {
+  showImportModal.value = true;
+  selectedFile.value = null;
+  if (fileInput.value) fileInput.value.value = ""; // Reset input
+};
+
+const handleFileSelect = (event) => {
+  selectedFile.value = event.target.files[0];
+};
+
+const uploadFile = async () => {
+  if (!selectedFile.value) return;
+
+  uploading.value = true;
+  const formData = new FormData();
+  formData.append("file", selectedFile.value);
+
+  try {
+    const response = await axios.post("/products/import", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+
+    if (response.data.status) {
+      Swal.fire("Success", "Products imported successfully!", "success");
+      showImportModal.value = false;
+      fetchProducts(); // Refresh list
+    }
+  } catch (error) {
+    Swal.fire(
+      "Error",
+      "Failed to import. Check file format or duplicates.",
+      "error",
+    );
+    console.error(error);
+  } finally {
+    uploading.value = false;
+  }
+};
+
 // --- Filtering Logic ---
 const filteredProducts = computed(() => {
   return products.value.filter((product) => {
@@ -181,10 +228,18 @@ onMounted(() => {
       </div>
       <div class="flex gap-3">
         <button
+          @click="openImportModal"
+          class="hidden sm:flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition shadow-md hover:shadow-lg text-sm font-bold"
+        >
+          <DocumentArrowUpIcon class="w-5 h-5" /> Import Excel
+        </button>
+
+        <button
           class="hidden sm:flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 transition shadow-sm text-sm font-medium"
         >
           <ArrowDownTrayIcon class="w-5 h-5" /> Export
         </button>
+
         <button
           @click="openAddModal"
           class="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-md hover:shadow-lg transition transform active:scale-95 text-sm font-bold"
@@ -308,7 +363,8 @@ onMounted(() => {
               </td>
               <td class="px-6 py-3 text-right">
                 <div class="text-sm font-bold text-gray-900 dark:text-white">
-                  ৳ {{ Number(product.selling_price || 0).toLocaleString() }}
+                  ৳
+                  {{ Number(product.selling_price || 0).toLocaleString() }}
                 </div>
                 <div class="text-xs text-gray-500">
                   Cost:
@@ -371,5 +427,75 @@ onMounted(() => {
       :product="selectedProduct"
       @close="handleModalClose"
     />
+
+    <div
+      v-if="showImportModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+    >
+      <div
+        class="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl p-6"
+      >
+        <h3 class="text-lg font-bold text-gray-800 dark:text-white mb-4">
+          Import Products
+        </h3>
+
+        <div class="space-y-4">
+          <div
+            class="border-2 border-dashed border-gray-300 dark:border-slate-600 rounded-lg p-6 text-center"
+          >
+            <input
+              type="file"
+              ref="fileInput"
+              accept=".xlsx,.csv"
+              class="hidden"
+              @change="handleFileSelect"
+            />
+            <button
+              @click="$refs.fileInput.click()"
+              class="text-indigo-600 font-medium hover:underline"
+            >
+              Click to upload
+            </button>
+            <p class="text-xs text-gray-500 mt-2" v-if="!selectedFile">
+              Select an .xlsx or .csv file
+            </p>
+            <p
+              class="text-sm font-bold text-gray-800 dark:text-gray-200 mt-2"
+              v-else
+            >
+              {{ selectedFile.name }}
+            </p>
+          </div>
+
+          <div class="text-xs text-gray-500">
+            <p class="font-bold">Excel Columns Format:</p>
+            <p>
+              name, sku, category, brand, unit, cost_price, selling_price,
+              stock, alert_quantity
+            </p>
+          </div>
+        </div>
+
+        <div class="mt-6 flex justify-end gap-3">
+          <button
+            @click="showImportModal = false"
+            class="px-4 py-2 text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-700 rounded-lg"
+          >
+            Cancel
+          </button>
+          <button
+            @click="uploadFile"
+            :disabled="!selectedFile || uploading"
+            class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            <span
+              v-if="uploading"
+              class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"
+            ></span>
+            {{ uploading ? "Importing..." : "Upload & Import" }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
