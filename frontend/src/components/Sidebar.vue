@@ -24,7 +24,6 @@ import {
 const route = useRoute();
 
 // --- State ---
-// User কে ref এ রাখা হয়েছে যাতে আপডেট করা যায়
 const user = ref(JSON.parse(localStorage.getItem("user") || "{}"));
 const role = user.value.role;
 const openMenu = ref("");
@@ -149,6 +148,13 @@ const menuItems = computed(() => {
           icon: PlusCircleIcon,
         },
       ],
+    },
+
+    {
+      name: "User Management",
+      path: "/users",
+      icon: UsersIcon,
+      roles: ["admin"],
     },
     {
       name: "Settings",

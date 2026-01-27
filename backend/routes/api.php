@@ -14,6 +14,7 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\SslCommerzController;
 use App\Http\Controllers\SettingController;
+use App\Http\Controllers\UserController;
 
 // --- Public Routes ---
 Route::post('/register', [AuthController::class, 'register']);
@@ -65,5 +66,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // Settings
         Route::get('/settings', [SettingController::class, 'index']);
         Route::post('/settings', [SettingController::class, 'update']);
+
+        // User Management
+        Route::apiResource('users', UserController::class);
     });
 });

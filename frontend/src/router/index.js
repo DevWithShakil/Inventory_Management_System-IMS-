@@ -12,6 +12,7 @@ import Suppliers from '../views/Suppliers.vue';
 import Purchases from '../views/Purchases.vue';
 import PurchaseCreate from '../views/PurchaseCreate.vue';
 import Profile from '../views/Profile.vue';
+import Users from '../views/Users.vue';
 
 const routes = [
     {
@@ -84,6 +85,13 @@ const routes = [
                 component: Profile,
                 meta: { requiresAuth: true }
             },
+
+            {
+                path: '/users',
+                name: 'users',
+                component: Users,
+                meta: { requiresAuth: true, role: 'admin' }
+            }
 
         ]
     },
