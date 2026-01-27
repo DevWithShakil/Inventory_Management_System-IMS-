@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 
 class AuthController extends Controller
 {
@@ -93,4 +94,51 @@ class AuthController extends Controller
             'user' => $request->user()
         ]);
     }
+
+// AuthController.php
+
+public function updateProfile(Request $request)
+{
+    $user = $request->user();
+
+    $request->validate([
+        'name' => 'required|string|max:255',
+        'email' => 'required|email|unique:users,email,' . $user->id,
+        'avatar' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // Image Validation
+        'current_password' => 'nullable|required_with:new_password',
+        'new_password' => 'nullable|min:6|confirmed',
+    ]);
+
+    $user->name = $request->name;
+    $user->email = $request->email;
+
+    // 🔥 Avatar Upload Logic
+    if ($request->hasFile('avatar')) {
+        // Delete old avatar if exists
+        if ($user->avatar && Storage::disk('public')->exists($user->avatar)) {
+            Storage::disk('public')->delete($user->avatar);
+        }
+        // Store new avatar
+        $path = $request->file('avatar')->store('uploads/avatars', 'public');
+        $user->avatar = $path;
+    }
+
+    if ($request->filled('current_password')) {
+        if (!Hash::check($request->current_password, $user->password)) {
+            return response()->json([
+                'status' => false,
+                'errors' => ['current_password' => ['Current password does not match.']]
+            ], 422);
+        }
+        $user->password = Hash::make($request->new_password);
+    }
+
+    $user->save();
+
+    return response()->json([
+        'status' => true,
+        'message' => 'Profile updated successfully.',
+        'user' => $user
+    ]);
+}
 }

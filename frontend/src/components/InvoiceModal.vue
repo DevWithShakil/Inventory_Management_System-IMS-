@@ -1,9 +1,9 @@
 <script setup>
-import { computed, ref, nextTick } from "vue";
+import { computed, ref, onMounted, nextTick } from "vue";
+import axios from "../axios"; // Axios ইমপোর্ট করা হলো
 import {
   XMarkIcon,
   PrinterIcon,
-  DocumentTextIcon,
   ReceiptPercentIcon,
 } from "@heroicons/vue/24/outline";
 
@@ -16,7 +16,25 @@ const emit = defineEmits(["close"]);
 
 // --- State ---
 const printMode = ref("a4");
+const settings = ref(null); // সেটিংস ডাটা রাখার জন্য
 
+// --- Fetch Settings ---
+const fetchSettings = async () => {
+  try {
+    const response = await axios.get("/settings");
+    if (response.data.status) {
+      settings.value = response.data.data;
+    }
+  } catch (error) {
+    console.error("Failed to load invoice settings", error);
+  }
+};
+
+onMounted(() => {
+  fetchSettings();
+});
+
+// --- Computed & Helpers ---
 const subTotal = computed(() => {
   if (!props.sale?.sale_items) return 0;
   return props.sale.sale_items.reduce((sum, item) => {
@@ -25,6 +43,13 @@ const subTotal = computed(() => {
     return sum + qty * price;
   }, 0);
 });
+
+// লোগো URL জেনারেট করার হেল্পার
+const getLogoUrl = (path) => {
+  if (!path) return null;
+  if (path.startsWith("http")) return path;
+  return `http://localhost:8000/storage/${path}`;
+};
 
 // --- Print Actions ---
 const handlePrint = async (mode) => {
@@ -84,24 +109,39 @@ const handlePrint = async (mode) => {
               printMode === 'thermal',
           }"
         >
-          <div>
+          <div
+            :class="{ 'flex flex-col items-center': printMode === 'thermal' }"
+          >
+            <img
+              v-if="settings?.logo"
+              :src="getLogoUrl(settings.logo)"
+              class="object-contain mb-2"
+              :class="printMode === 'thermal' ? 'h-12 w-auto' : 'h-16 w-auto'"
+              alt="Logo"
+            />
+
             <h1
               class="font-extrabold text-indigo-600 tracking-tight"
               :class="printMode === 'thermal' ? 'text-xl' : 'text-3xl'"
             >
-              SmartIMS
+              {{ settings?.company_name || "SmartIMS" }}
             </h1>
+
             <p
-              class="text-gray-500"
+              class="text-gray-500 whitespace-pre-line"
               :class="printMode === 'thermal' ? 'text-[10px]' : 'text-sm mt-1'"
             >
-              Authorized Dealer & Service Center
+              {{
+                settings?.company_address ||
+                "Authorized Dealer & Service Center"
+              }}
             </p>
+
             <p
               class="text-gray-400"
               :class="printMode === 'thermal' ? 'text-[10px]' : 'text-xs'"
             >
-              Dhaka, Bangladesh | +880 1700-000000
+              {{ settings?.company_phone }} | {{ settings?.company_email }}
             </p>
           </div>
 
@@ -122,7 +162,7 @@ const handlePrint = async (mode) => {
               class="text-gray-600 font-mono"
               :class="printMode === 'thermal' ? 'text-xs' : 'text-sm mt-1'"
             >
-              #{{ String(sale?.id).padStart(4, "0") }}
+              #{{ String(sale?.invoice_no || sale?.id).padStart(4, "0") }}
             </p>
             <p
               class="text-gray-500"
@@ -230,7 +270,10 @@ const handlePrint = async (mode) => {
           <div :class="printMode === 'thermal' ? 'w-full' : 'w-64 space-y-2'">
             <div class="flex justify-between text-gray-600 mb-1">
               <span>Subtotal:</span>
-              <span>৳ {{ subTotal.toLocaleString() }}</span>
+              <span
+                >{{ settings?.currency_symbol || "৳" }}
+                {{ subTotal.toLocaleString() }}</span
+              >
             </div>
 
             <div
@@ -238,7 +281,10 @@ const handlePrint = async (mode) => {
               v-if="sale?.discount > 0"
             >
               <span>Discount:</span>
-              <span>- ৳ {{ Number(sale?.discount).toLocaleString() }}</span>
+              <span
+                >- {{ settings?.currency_symbol || "৳" }}
+                {{ Number(sale?.discount).toLocaleString() }}</span
+              >
             </div>
 
             <div
@@ -246,12 +292,18 @@ const handlePrint = async (mode) => {
               :class="printMode === 'thermal' ? 'text-sm' : 'text-lg'"
             >
               <span>Total:</span>
-              <span>৳ {{ Number(sale?.grand_total).toLocaleString() }}</span>
+              <span
+                >{{ settings?.currency_symbol || "৳" }}
+                {{ Number(sale?.grand_total).toLocaleString() }}</span
+              >
             </div>
 
             <div class="flex justify-between text-green-600 font-medium mb-1">
               <span>Paid:</span>
-              <span>৳ {{ Number(sale?.paid_amount).toLocaleString() }}</span>
+              <span
+                >{{ settings?.currency_symbol || "৳" }}
+                {{ Number(sale?.paid_amount).toLocaleString() }}</span
+              >
             </div>
 
             <div
@@ -259,7 +311,10 @@ const handlePrint = async (mode) => {
               class="flex justify-between text-red-600 font-bold"
             >
               <span>Due:</span>
-              <span>৳ {{ Number(sale?.due_amount).toLocaleString() }}</span>
+              <span
+                >{{ settings?.currency_symbol || "৳" }}
+                {{ Number(sale?.due_amount).toLocaleString() }}</span
+              >
             </div>
           </div>
         </div>
@@ -268,9 +323,14 @@ const handlePrint = async (mode) => {
           class="text-center text-gray-400 pt-4 border-t border-gray-100 mt-4"
           :class="printMode === 'thermal' ? 'text-[10px]' : 'text-xs mt-12'"
         >
-          <p>Thank you!</p>
-          <p v-if="printMode === 'thermal'">Software by SmartIMS</p>
-          <p v-else>For any queries, contact support@smartims.com</p>
+          <p>
+            {{
+              settings?.invoice_footer_text || "Thank you for your business!"
+            }}
+          </p>
+          <p v-if="printMode !== 'thermal'">
+            For any queries, contact {{ settings?.company_email || "support" }}
+          </p>
 
           <div
             v-if="printMode === 'thermal'"
@@ -285,10 +345,6 @@ const handlePrint = async (mode) => {
 </template>
 
 <style scoped>
-/* Standard A4 Styles are handled by Tailwind classes above.
-  We specifically tune the @media print for thermal printers here.
-*/
-
 @media print {
   body * {
     visibility: hidden;
@@ -307,18 +363,15 @@ const handlePrint = async (mode) => {
     margin: 0;
   }
 
-  /* 🔥 Thermal Mode Specifics */
   .thermal-layout {
-    width: 78mm !important; /* Standard Thermal Width (approx 80mm with margins) */
+    width: 78mm !important;
     max-width: 78mm !important;
     padding: 0 !important;
     margin: 0 auto;
-    font-family:
-      "Courier New", Courier, monospace; /* Monospace looks better on thermal */
+    font-family: "Courier New", Courier, monospace;
     color: black;
   }
 
-  /* Force black text for thermal printers */
   .thermal-layout * {
     color: #000 !important;
   }

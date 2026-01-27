@@ -11,6 +11,7 @@ import Attributes from '../views/Attributes.vue';
 import Suppliers from '../views/Suppliers.vue';
 import Purchases from '../views/Purchases.vue';
 import PurchaseCreate from '../views/PurchaseCreate.vue';
+import Profile from '../views/Profile.vue';
 
 const routes = [
     {
@@ -75,6 +76,13 @@ const routes = [
                 path: '/purchases/create',
                 name: 'purchase-create',
                 component: PurchaseCreate
+            },
+
+            {
+                path: '/profile',
+                name: 'user_profile',
+                component: Profile,
+                meta: { requiresAuth: true }
             },
 
         ]

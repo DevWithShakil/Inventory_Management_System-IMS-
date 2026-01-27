@@ -1,6 +1,7 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, onMounted, onUnmounted } from "vue";
 import { useRoute } from "vue-router";
+import axios from "../axios";
 import {
   Squares2X2Icon,
   ShoppingBagIcon,
@@ -21,11 +22,49 @@ import {
 } from "@heroicons/vue/24/outline";
 
 const route = useRoute();
-const user = JSON.parse(localStorage.getItem("user") || "{}");
-const role = user.role;
 
-// Open Menu State
+// --- State ---
+// User কে ref এ রাখা হয়েছে যাতে আপডেট করা যায়
+const user = ref(JSON.parse(localStorage.getItem("user") || "{}"));
+const role = user.value.role;
 const openMenu = ref("");
+const settings = ref(null);
+
+// --- Reactivity for User Profile ---
+const updateUserFromStorage = () => {
+  user.value = JSON.parse(localStorage.getItem("user") || "{}");
+};
+
+// --- Fetch Settings for Logo ---
+const fetchSettings = async () => {
+  try {
+    const response = await axios.get("/settings");
+    if (response.data.status) {
+      settings.value = response.data.data;
+    }
+  } catch (error) {
+    console.error("Failed to load settings", error);
+  }
+};
+
+// Image Helper (Works for both Logo and Avatar)
+const getImageUrl = (path) => {
+  if (!path) return null;
+  if (path.startsWith("http")) return path;
+  return `http://localhost:8000/storage/${path}`;
+};
+
+onMounted(() => {
+  fetchSettings();
+  // Listen for profile updates
+  window.addEventListener("storage", updateUserFromStorage);
+  window.addEventListener("user-profile-updated", updateUserFromStorage);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("storage", updateUserFromStorage);
+  window.removeEventListener("user-profile-updated", updateUserFromStorage);
+});
 
 // --- Menu Structure ---
 const menuItems = computed(() => {
@@ -36,7 +75,6 @@ const menuItems = computed(() => {
       icon: Squares2X2Icon,
       roles: ["admin", "staff"],
     },
-    // --- 1. Sales Dropdown ---
     {
       name: "Sales",
       icon: BanknotesIcon,
@@ -46,7 +84,6 @@ const menuItems = computed(() => {
         { name: "Sales History", path: "/sales", icon: ListBulletIcon },
       ],
     },
-    // --- 2. Purchase Dropdown ---
     {
       name: "Purchases",
       icon: ClipboardDocumentCheckIcon,
@@ -60,7 +97,6 @@ const menuItems = computed(() => {
         },
       ],
     },
-    // --- 3. Inventory Dropdown ---
     {
       name: "Inventory",
       icon: CubeIcon,
@@ -74,7 +110,6 @@ const menuItems = computed(() => {
         },
       ],
     },
-    // --- 4. Attributes Dropdown ---
     {
       name: "Attributes",
       icon: TagIcon,
@@ -89,14 +124,12 @@ const menuItems = computed(() => {
         { name: "Units", path: "/attributes?tab=units", icon: ScaleIcon },
       ],
     },
-    // --- 5. Suppliers Dropdown ---
     {
       name: "Suppliers",
       icon: TruckIcon,
       roles: ["admin"],
       children: [
         { name: "All Suppliers", path: "/suppliers", icon: ListBulletIcon },
-        //  Link updated with query parameter
         {
           name: "Add Supplier",
           path: "/suppliers?action=add",
@@ -104,14 +137,12 @@ const menuItems = computed(() => {
         },
       ],
     },
-    // --- 6. Customers Dropdown ---
     {
       name: "Customers",
       icon: UsersIcon,
       roles: ["staff", "admin"],
       children: [
         { name: "All Customers", path: "/customers", icon: ListBulletIcon },
-        //  Link updated with query parameter
         {
           name: "Add Customer",
           path: "/customers?action=add",
@@ -135,18 +166,15 @@ defineProps({
 
 const emit = defineEmits(["close"]);
 
-// Toggle Logic
 const toggleMenu = (menuName) => {
   openMenu.value = openMenu.value === menuName ? "" : menuName;
 };
 
-// Auto Open Menu based on Route
 watch(
   () => route.path,
   (newPath) => {
     menuItems.value.forEach((item) => {
       if (item.children) {
-        // Check matching path ignoring query params
         const hasChild = item.children.some(
           (child) => child.path.split("?")[0] === newPath,
         );
@@ -157,7 +185,6 @@ watch(
   { immediate: true },
 );
 
-// Helper: Check active link handling query params
 const isActive = (path) => {
   if (path.includes("?")) {
     return route.fullPath === path;
@@ -169,18 +196,32 @@ const isActive = (path) => {
 <template>
   <aside
     :class="[
-      'fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static',
+      'fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static flex flex-col',
       isOpen ? 'translate-x-0' : '-translate-x-full',
     ]"
   >
     <div
-      class="h-16 flex items-center justify-between px-6 border-b border-gray-100 dark:border-slate-800"
+      class="h-20 flex items-center justify-between px-6 border-b border-gray-100 dark:border-slate-800 flex-shrink-0"
     >
-      <h1
-        class="text-xl font-bold text-gray-800 dark:text-white tracking-tight"
-      >
-        Smart<span class="text-indigo-600">IMS</span>
-      </h1>
+      <router-link to="/dashboard" class="flex items-center gap-2">
+        <img
+          v-if="settings?.logo"
+          :src="getImageUrl(settings.logo)"
+          alt="Logo"
+          class="h-12 w-auto object-contain transition-all hover:scale-105"
+        />
+
+        <h1
+          v-else
+          class="text-2xl font-bold text-gray-800 dark:text-white tracking-tight"
+        >
+          {{ settings?.company_name || "Smart" }}
+          <span v-if="!settings?.company_name" class="text-indigo-600"
+            >IMS</span
+          >
+        </h1>
+      </router-link>
+
       <button
         @click="$emit('close')"
         class="lg:hidden text-gray-500 hover:text-red-500 transition"
@@ -189,7 +230,7 @@ const isActive = (path) => {
       </button>
     </div>
 
-    <nav class="p-4 space-y-1 overflow-y-auto h-[calc(100vh-8rem)]">
+    <nav class="p-4 space-y-1 overflow-y-auto flex-1 custom-scrollbar">
       <div v-for="section in ['Menu']" :key="section">
         <p
           class="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2"
@@ -275,23 +316,48 @@ const isActive = (path) => {
     </nav>
 
     <div
-      class="absolute bottom-0 w-full p-4 border-t border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900/50"
+      class="p-4 border-t border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900/50 flex-shrink-0"
     >
       <div class="flex items-center gap-3">
         <div
-          class="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-indigo-700 dark:text-indigo-300 font-bold text-xs"
+          class="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-sm overflow-hidden ring-2 ring-white dark:ring-slate-800 shadow-sm"
         >
-          {{ user.name?.charAt(0).toUpperCase() }}
+          <img
+            v-if="user.avatar"
+            :src="getImageUrl(user.avatar)"
+            class="w-full h-full object-cover"
+          />
+          <span v-else>{{ user.name?.charAt(0).toUpperCase() }}</span>
         </div>
+
         <div class="overflow-hidden">
           <p
-            class="text-sm font-semibold text-gray-700 dark:text-gray-200 truncate"
+            class="text-sm font-bold text-gray-700 dark:text-gray-200 truncate"
           >
             {{ user.name }}
           </p>
-          <p class="text-xs text-gray-500 capitalize">{{ user.role }}</p>
+          <p class="text-xs text-gray-500 capitalize">
+            {{ user.role }} Account
+          </p>
         </div>
       </div>
     </div>
   </aside>
 </template>
+
+<style scoped>
+/* Optional: Custom Scrollbar for Sidebar Navigation */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 20px;
+}
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #334155;
+}
+</style>

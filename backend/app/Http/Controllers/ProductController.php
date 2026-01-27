@@ -217,4 +217,21 @@ public function destroy(string $id)
         ], 500);
     }
 }
+
+public function searchProduct(Request $request)
+{
+    $query = $request->input('query');
+
+    if (!$query) {
+        return response()->json([]);
+    }
+
+    $products = Product::where('name', 'LIKE', "%{$query}%")
+                ->orWhere('sku', 'LIKE', "%{$query}%")
+                ->select('id', 'name', 'image', 'stock_quantity', 'selling_price', 'sku')
+                ->limit(5)
+                ->get();
+
+    return response()->json($products);
+}
 }
