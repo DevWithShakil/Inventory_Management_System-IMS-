@@ -6,6 +6,9 @@ use App\Models\Product;
 use App\Models\Category;
 use App\Models\Brand;
 use App\Models\Unit;
+use App\Models\Supplier;      // 🔥 Added
+use App\Models\Purchase;      // 🔥 Added
+use App\Models\PurchaseItem;  // 🔥 Added
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Log;
@@ -241,7 +244,7 @@ class ProductController extends Controller
     }
 
     /**
-     * Import products via CSV (Updated for Schema)
+     * Import products via CSV with Purchase History
      */
     public function import(Request $request)
     {
@@ -253,14 +256,37 @@ class ProductController extends Controller
 
         if (($handle = fopen($file->getPathname(), 'r')) !== false) {
 
-            // Skip Header
-            fgetcsv($handle);
+            fgetcsv($handle); // Skip Header
 
             DB::beginTransaction();
 
             try {
+                // ১. সাপ্লায়ার তৈরি বা খুঁজে বের করা
+                $supplier = Supplier::firstOrCreate(
+                    ['name' => 'Bulk Import History'],
+                    [
+                        'phone' => '0000000000',
+                        'address' => 'System Generated',
+                        'status' => true
+                    ]
+                );
+
+                // ২. Purchase রেকর্ড তৈরি (Schema অনুযায়ী ফিক্সড)
+                $purchase = Purchase::create([
+                    'date'         => now()->format('Y-m-d'),
+                    'reference_no' => 'CSV-' . time(),
+                    'supplier_id'  => $supplier->id,
+                    'status'       => 'completed',
+                    'subtotal'     => 0,
+                    'grand_total'  => 0,
+                    'tax'          => 0,
+                    'discount'     => 0,
+                    'created_by'   => auth()->id() ?? 1, // 🔥 বাধ্যতামূলক: যে ইউজার লগিন আছে, অথবা ID 1
+                ]);
+
+                $grandTotal = 0;
+
                 while (($row = fgetcsv($handle)) !== false) {
-                    // Skip empty or short rows
                     if (count($row) < 8) continue;
 
                     $name           = $row[0];
@@ -268,43 +294,34 @@ class ProductController extends Controller
                     $categoryName   = $row[2];
                     $brandName      = $row[3];
                     $unitName       = $row[4];
-                    $costPrice      = $row[5];
-                    $sellingPrice   = $row[6];
-                    $stock          = $row[7];
+                    $costPrice      = (float) $row[5];
+                    $sellingPrice   = (float) $row[6];
+                    $stock          = (int) $row[7];
                     $alertQty       = $row[8] ?? 5;
 
-                    // 1. Category
+                    // Category
                     $category = Category::firstOrCreate(
                         ['name' => $categoryName],
-                        [
-                            'slug' => Str::slug($categoryName),
-                            'status' => true
-                        ]
+                        ['slug' => Str::slug($categoryName), 'status' => true]
                     );
 
-                    // 2. Brand
+                    // Brand
                     $brand = null;
                     if ($brandName) {
                         $brand = Brand::firstOrCreate(
                             ['name' => $brandName],
-                            [
-                                'slug' => Str::slug($brandName),
-                                'status' => true
-                            ]
+                            ['slug' => Str::slug($brandName), 'status' => true]
                         );
                     }
 
-                    // 3. Unit
+                    // Unit
                     $unit = Unit::firstOrCreate(
                         ['name' => $unitName ?? 'pcs'],
-                        [
-                            // Schema
-                            'short_name' => substr($unitName ?? 'pcs', 0, 10)
-                        ]
+                        ['short_name' => substr($unitName ?? 'pcs', 0, 10)]
                     );
 
-                    // 4. Product Update/Create
-                    Product::updateOrCreate(
+                    // ৩. Product Update/Create
+                    $product = Product::updateOrCreate(
                         ['sku' => $sku],
                         [
                             'name'           => $name,
@@ -316,17 +333,36 @@ class ProductController extends Controller
                             'selling_price'  => $sellingPrice,
                             'stock_quantity' => $stock,
                             'alert_quantity' => $alertQty,
-                            'image'          => null
                         ]
                     );
+
+                    // ৪. Purchase Item এন্ট্রি
+                    if ($stock > 0) {
+                        $lineTotal = $costPrice * $stock;
+                        $grandTotal += $lineTotal;
+
+                        PurchaseItem::create([
+                            'purchase_id' => $purchase->id,
+                            'product_id'  => $product->id,
+                            'quantity'    => $stock,
+                            'unit_cost'   => $costPrice,
+                            'subtotal'    => $lineTotal // Schema অনুযায়ী নাম 'subtotal'
+                        ]);
+                    }
                 }
+
+                // ৫. Purchase এর টোটাল আপডেট করা
+                $purchase->update([
+                    'subtotal'    => $grandTotal,
+                    'grand_total' => $grandTotal,
+                ]);
 
                 DB::commit();
                 fclose($handle);
 
                 return response()->json([
                     'status' => true,
-                    'message' => 'Products imported successfully via CSV!'
+                    'message' => 'Products imported & Purchase history created!'
                 ]);
 
             } catch (\Exception $e) {
