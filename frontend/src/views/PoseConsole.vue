@@ -349,30 +349,58 @@ const resetCartState = () => {
   clearCustomer();
 };
 
-// --- Coupon Logic ---
-const applyCoupon = () => {
+// --- Coupon Logic (API Based) ---
+const applyCoupon = async () => {
   if (!couponCode.value) return;
-  // Demo Coupon Logic - Replace with API call
-  if (couponCode.value === "DISCOUNT100") {
-    appliedCoupon.value = { code: "DISCOUNT100", amount: 100, type: "fixed" };
-    Swal.fire({
-      icon: "success",
-      title: "Coupon Applied!",
-      toast: true,
-      position: "top-end",
-      timer: 2000,
-      showConfirmButton: false,
+
+  if (cart.value.length === 0) {
+    Swal.fire({ icon: "warning", title: "Cart is empty" });
+    return;
+  }
+
+  try {
+    const response = await axios.post("/check-coupon", {
+      code: couponCode.value,
+      cart_total: subTotal.value,
+      customer_id:
+        selectedCustomer.value === "walk-in" ? null : selectedCustomer.value,
     });
-  } else {
+
+    if (response.data.status) {
+      const data = response.data.data;
+
+      appliedCoupon.value = {
+        code: data.code,
+        amount: data.discount,
+        type: "fixed",
+      };
+
+      Swal.fire({
+        icon: "success",
+        title: "Applied!",
+        text: `You saved ৳${data.discount}`,
+        toast: true,
+        position: "top-end",
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    }
+  } catch (error) {
+    console.error(error);
+    appliedCoupon.value = null;
+    let msg = "Invalid Coupon";
+    if (error.response && error.response.data.message) {
+      msg = error.response.data.message;
+    }
     Swal.fire({
       icon: "error",
-      title: "Invalid Coupon",
+      title: "Cannot Apply",
+      text: msg,
       toast: true,
       position: "top-end",
-      timer: 2000,
+      timer: 3000,
       showConfirmButton: false,
     });
-    appliedCoupon.value = null;
   }
 };
 
@@ -412,11 +440,7 @@ const pointsDiscount = computed(() => {
 });
 
 const couponDiscountAmount = computed(() =>
-  appliedCoupon.value
-    ? appliedCoupon.value.type === "fixed"
-      ? appliedCoupon.value.amount
-      : (subTotal.value * appliedCoupon.value.amount) / 100
-    : 0,
+  appliedCoupon.value ? Number(appliedCoupon.value.amount) : 0,
 );
 
 const grandTotal = computed(() =>
@@ -471,9 +495,11 @@ const processSale = async (paymentDetails) => {
       })),
       sub_total: subTotal.value,
 
+      // 🔥 FIX: Send ONLY coupon discount here. Points discount is handled by backend via 'redeem_amount'.
       discount: couponDiscountAmount.value || 0,
 
       redeem_amount: pointsToRedeem.value,
+      coupon_code: appliedCoupon.value ? appliedCoupon.value.code : null, // Send coupon code for tracking
 
       grand_total: grandTotal.value,
       payment_method: paymentDetails.payment_method,
@@ -529,8 +555,8 @@ const handleSuccess = (saleData) => {
   resetCartState();
   completedSaleData.value = saleData;
   showInvoiceModal.value = true;
-  fetchProducts();
-  fetchCustomers();
+  fetchProducts(); // Update Stock
+  fetchCustomers(); // Update Points
   Swal.fire({
     icon: "success",
     title: "Sale Completed!",

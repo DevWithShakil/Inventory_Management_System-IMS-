@@ -15,6 +15,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\SslCommerzController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\CouponController;
 
 // --- Public Routes ---
 Route::post('/register', [AuthController::class, 'register']);
@@ -40,6 +41,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Payment
     Route::post('/pay-via-ssl', [SslCommerzController::class, 'payViaAjax']);
+
+    // Coupon Management Routes
+    Route::get('/coupons', [CouponController::class, 'index']);
+    Route::post('/check-coupon', [CouponController::class, 'checkCoupon']);
 
     // --- Admin Only Routes ---
     Route::middleware('role:admin')->group(function () {
@@ -72,5 +77,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Import Products
         Route::post('/products/import', [ProductController::class, 'import']);
+
+        // coupon create & delete
+        Route::post('/coupons', [CouponController::class, 'store']);
+        Route::delete('/coupons/{id}', [CouponController::class, 'destroy']);
     });
 });

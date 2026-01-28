@@ -13,6 +13,7 @@ import Purchases from '../views/Purchases.vue';
 import PurchaseCreate from '../views/PurchaseCreate.vue';
 import Profile from '../views/Profile.vue';
 import Users from '../views/Users.vue';
+import Coupons from '../views/Coupons.vue';
 
 const routes = [
     {
@@ -91,7 +92,13 @@ const routes = [
                 name: 'users',
                 component: Users,
                 meta: { requiresAuth: true, role: 'admin' }
-            }
+            },
+            {
+                path: '/coupons',
+                name: 'coupons',
+                component: Coupons,
+                meta: { requiresAuth: true, role: 'admin' }
+            },
 
         ]
     },

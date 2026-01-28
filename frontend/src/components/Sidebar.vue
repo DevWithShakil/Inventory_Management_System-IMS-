@@ -19,6 +19,7 @@ import {
   BanknotesIcon,
   SwatchIcon,
   ScaleIcon,
+  TicketIcon, // 🔥 Added for Coupon
 } from "@heroicons/vue/24/outline";
 
 const route = useRoute();
@@ -46,7 +47,7 @@ const fetchSettings = async () => {
   }
 };
 
-// Image Helper (Works for both Logo and Avatar)
+// Image Helper
 const getImageUrl = (path) => {
   if (!path) return null;
   if (path.startsWith("http")) return path;
@@ -55,7 +56,6 @@ const getImageUrl = (path) => {
 
 onMounted(() => {
   fetchSettings();
-  // Listen for profile updates
   window.addEventListener("storage", updateUserFromStorage);
   window.addEventListener("user-profile-updated", updateUserFromStorage);
 });
@@ -148,6 +148,14 @@ const menuItems = computed(() => {
           icon: PlusCircleIcon,
         },
       ],
+    },
+
+    // 🔥 NEW COUPON SECTION ADDED HERE
+    {
+      name: "Coupons & Offers",
+      icon: TicketIcon,
+      roles: ["admin"], // শুধু অ্যাডমিন কুপন বানাতে পারবে
+      path: "/coupons", // Coupon List Page
     },
 
     {
