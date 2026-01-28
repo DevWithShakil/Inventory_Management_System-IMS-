@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted } from "vue";
 import axios from "../axios";
 import Swal from "sweetalert2";
 import {
@@ -14,18 +14,23 @@ import {
   XMarkIcon,
   CheckCircleIcon,
   GlobeAltIcon,
+  PencilSquareIcon, // 🔥 Added Edit Icon
 } from "@heroicons/vue/24/outline";
 
 // --- State ---
 const coupons = ref([]);
-const allCustomers = ref([]); // সব কাস্টমার এখানে লোড হবে
+const allCustomers = ref([]);
 const isLoading = ref(false);
 const searchQuery = ref("");
 const showModal = ref(false);
 const isSubmitting = ref(false);
 
-// --- New State for Custom Selection ---
-const isGlobal = ref(true); // বাই ডিফল্ট গ্লোবাল থাকবে
+// --- Edit Mode State ---
+const isEditing = ref(false);
+const editingId = ref(null);
+
+// --- Custom Selection State ---
+const isGlobal = ref(true);
 const customerSearchQuery = ref("");
 const showCustomerResults = ref(false);
 const selectedCustomer = ref(null);
@@ -68,7 +73,7 @@ const fetchCustomers = async () => {
   }
 };
 
-// --- Customer Search Logic (Local Filter) ---
+// --- Customer Search Logic ---
 const filteredCustomerSearch = computed(() => {
   if (!customerSearchQuery.value) return [];
   const query = customerSearchQuery.value.toLowerCase();
@@ -94,18 +99,51 @@ const removeSelectedCustomer = () => {
 const toggleGlobal = () => {
   isGlobal.value = !isGlobal.value;
   if (isGlobal.value) {
-    // গ্লোবাল হলে কাস্টমার ক্লিয়ার করে দিব
     removeSelectedCustomer();
   }
 };
 
-const createCoupon = async () => {
+// --- Open Edit Modal 🔥 ---
+const editCoupon = (coupon) => {
+  isEditing.value = true;
+  editingId.value = coupon.id;
+
+  // Fill Form
+  form.value = {
+    code: coupon.code,
+    type: coupon.type,
+    value: coupon.value,
+    min_purchase: coupon.min_purchase,
+    // Date formatting for input type="date" (YYYY-MM-DD)
+    expires_at: coupon.expires_at
+      ? coupon.expires_at.split("T")[0].split(" ")[0]
+      : "",
+    usage_limit: coupon.usage_limit,
+    customer_id: coupon.customer_id,
+  };
+
+  // Set Global/Private State
+  if (coupon.customer_id) {
+    isGlobal.value = false;
+    // Backend should send 'customer' object with coupon
+    selectedCustomer.value =
+      coupon.customer ||
+      allCustomers.value.find((c) => c.id == coupon.customer_id);
+  } else {
+    isGlobal.value = true;
+    selectedCustomer.value = null;
+  }
+
+  showModal.value = true;
+};
+
+// --- Save (Create or Update) Logic 🔥 ---
+const saveCoupon = async () => {
   if (!form.value.code || !form.value.value) {
     Swal.fire("Error", "Please fill required fields", "warning");
     return;
   }
 
-  // যদি প্রাইভেট হয় কিন্তু কাস্টমার সিলেক্ট না করে
   if (!isGlobal.value && !form.value.customer_id) {
     Swal.fire(
       "Error",
@@ -118,19 +156,24 @@ const createCoupon = async () => {
   isSubmitting.value = true;
   try {
     const payload = { ...form.value };
-
-    // নিশ্চিত হওয়া যে গ্লোবাল হলে customer_id নাল যাচ্ছে
     if (isGlobal.value) {
       payload.customer_id = null;
     }
 
-    const response = await axios.post("/coupons", payload);
+    let response;
+    if (isEditing.value) {
+      // UPDATE
+      response = await axios.put(`/coupons/${editingId.value}`, payload);
+    } else {
+      // CREATE
+      response = await axios.post("/coupons", payload);
+    }
 
     if (response.data.status) {
       Swal.fire({
         icon: "success",
-        title: "Created!",
-        text: "Coupon created successfully",
+        title: isEditing.value ? "Updated!" : "Created!",
+        text: `Coupon ${isEditing.value ? "updated" : "created"} successfully`,
         toast: true,
         position: "top-end",
         timer: 2000,
@@ -215,7 +258,9 @@ const closeModal = () => {
     usage_limit: "",
     customer_id: null,
   };
-  // Reset Custom State
+  // Reset States
+  isEditing.value = false;
+  editingId.value = null;
   isGlobal.value = true;
   selectedCustomer.value = null;
   customerSearchQuery.value = "";
@@ -275,7 +320,7 @@ onMounted(() => {
           v-model="searchQuery"
           type="text"
           placeholder="Search by code or customer name..."
-          class="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-700/50 border border-gray-200 dark:border-slate-600 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 transition"
+          class="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-700/50 border border-gray-200 dark:border-slate-600 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 transition"
         />
       </div>
     </div>
@@ -388,12 +433,22 @@ onMounted(() => {
                 </p>
               </td>
               <td class="px-6 py-4 text-right">
-                <button
-                  @click="deleteCoupon(coupon.id)"
-                  class="text-gray-400 hover:text-red-500 transition"
-                >
-                  <TrashIcon class="w-5 h-5" />
-                </button>
+                <div class="flex items-center justify-end gap-2">
+                  <button
+                    @click="editCoupon(coupon)"
+                    class="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition"
+                    title="Edit"
+                  >
+                    <PencilSquareIcon class="w-5 h-5" />
+                  </button>
+                  <button
+                    @click="deleteCoupon(coupon.id)"
+                    class="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition"
+                    title="Delete"
+                  >
+                    <TrashIcon class="w-5 h-5" />
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -414,7 +469,9 @@ onMounted(() => {
           <h3
             class="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2"
           >
-            <PlusIcon class="w-5 h-5 text-indigo-600" /> New Coupon
+            <PlusIcon v-if="!isEditing" class="w-5 h-5 text-indigo-600" />
+            <PencilSquareIcon v-else class="w-5 h-5 text-indigo-600" />
+            {{ isEditing ? "Edit Coupon" : "New Coupon" }}
           </h3>
           <button
             @click="closeModal"
@@ -623,7 +680,7 @@ onMounted(() => {
             Cancel
           </button>
           <button
-            @click="createCoupon"
+            @click="saveCoupon"
             :disabled="isSubmitting"
             class="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg shadow-lg hover:bg-indigo-700 disabled:opacity-50 transition flex items-center gap-2"
           >
@@ -631,7 +688,13 @@ onMounted(() => {
               v-if="isSubmitting"
               class="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"
             ></span>
-            {{ isSubmitting ? "Saving..." : "Create Coupon" }}
+            {{
+              isSubmitting
+                ? "Saving..."
+                : isEditing
+                  ? "Update Coupon"
+                  : "Create Coupon"
+            }}
           </button>
         </div>
       </div>

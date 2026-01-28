@@ -81,5 +81,6 @@ Route::middleware('auth:sanctum')->group(function () {
         // coupon create & delete
         Route::post('/coupons', [CouponController::class, 'store']);
         Route::delete('/coupons/{id}', [CouponController::class, 'destroy']);
+        Route::put('/coupons/{id}', [CouponController::class, 'update']);
     });
 });
