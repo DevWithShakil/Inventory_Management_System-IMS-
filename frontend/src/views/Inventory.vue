@@ -13,7 +13,7 @@ import {
   ArrowDownTrayIcon,
   ExclamationTriangleIcon,
   Squares2X2Icon,
-  DocumentArrowUpIcon, // Added Icon
+  DocumentArrowUpIcon,
 } from "@heroicons/vue/24/outline";
 
 const route = useRoute();
