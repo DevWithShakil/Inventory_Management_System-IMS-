@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from "vue";
+import { ref, onMounted, onUnmounted, computed, watch } from "vue";
 import axios from "../axios";
 import Swal from "sweetalert2";
 import PaymentModal from "../components/PaymentModal.vue";
@@ -21,6 +21,7 @@ import {
   PauseIcon,
   ClockIcon,
   BoltIcon,
+  XMarkIcon,
 } from "@heroicons/vue/24/outline";
 
 // --- State ---
@@ -37,12 +38,16 @@ const searchInputRef = ref(null);
 // Filters & Selections
 const searchQuery = ref("");
 const selectedCategory = ref("all");
-const selectedCustomer = ref(null);
+
+// Customer Search State
+const selectedCustomer = ref(null); // Stores ID
+const customerSearch = ref(""); // Stores Input Text
+const showCustomerList = ref(false);
 
 // Loyalty & Coupon
 const couponCode = ref("");
 const appliedCoupon = ref(null);
-const redeemPoints = ref(false);
+const pointsToRedeem = ref(0); // Flexible Points Amount
 
 // Modal States
 const showPaymentModal = ref(false);
@@ -85,6 +90,28 @@ const fetchCustomers = async () => {
 const loadHeldOrders = () => {
   const stored = localStorage.getItem("pos_held_orders");
   if (stored) heldOrders.value = JSON.parse(stored);
+};
+
+// --- Customer Search Logic ---
+const filteredCustomersList = computed(() => {
+  if (!customerSearch.value) return [];
+  const query = customerSearch.value.toLowerCase();
+  return customers.value.filter(
+    (c) => c.name.toLowerCase().includes(query) || c.phone.includes(query),
+  );
+});
+
+const selectCustomer = (customer) => {
+  selectedCustomer.value = customer.id;
+  customerSearch.value = `${customer.name} (${customer.phone})`;
+  showCustomerList.value = false;
+  pointsToRedeem.value = 0; // Reset points on customer change
+};
+
+const clearCustomer = () => {
+  selectedCustomer.value = null;
+  customerSearch.value = "";
+  pointsToRedeem.value = 0;
 };
 
 // --- Feature 1: Barcode Scanner / Auto Add ---
@@ -162,6 +189,17 @@ const recallOrder = (index) => {
 
   cart.value = order.items;
   selectedCustomer.value = order.customer;
+
+  // Restore Customer Name in Search Box if ID exists
+  if (order.customer && order.customer !== "walk-in") {
+    const cus = customers.value.find((c) => c.id === order.customer);
+    if (cus) {
+      customerSearch.value = `${cus.name} (${cus.phone})`;
+    }
+  } else if (order.customer === "walk-in") {
+    customerSearch.value = ""; // or set specific text
+  }
+
   heldOrders.value.splice(index, 1);
   localStorage.setItem("pos_held_orders", JSON.stringify(heldOrders.value));
 
@@ -223,10 +261,10 @@ const addNewCustomer = async () => {
     if (!name || !phone) return;
 
     // In real app, call API to save customer here
-    // For now, push to local list
-    const newCus = { id: Date.now(), name, phone, points: 0 };
+    // For now, push to local list for UI update
+    const newCus = { id: Date.now(), name, phone, reward_points: 0 };
     customers.value.push(newCus);
-    selectedCustomer.value = newCus.id;
+    selectCustomer(newCus);
 
     Swal.fire({
       icon: "success",
@@ -273,7 +311,7 @@ const addToCart = (product) => {
     cart.value.push({
       ...product,
       qty: 1,
-      price: Number(product.selling_price || 0), // Ensure numeric price
+      price: Number(product.selling_price || 0),
     });
   }
 };
@@ -307,7 +345,8 @@ const resetCartState = () => {
   cart.value = [];
   couponCode.value = "";
   appliedCoupon.value = null;
-  redeemPoints.value = false;
+  pointsToRedeem.value = 0;
+  clearCustomer();
 };
 
 // --- Coupon Logic ---
@@ -337,7 +376,7 @@ const applyCoupon = () => {
   }
 };
 
-// --- Calculations ---
+// --- Calculations & Logic ---
 const currentCustomerData = computed(
   () => customers.value.find((c) => c.id === selectedCustomer.value) || null,
 );
@@ -346,13 +385,31 @@ const subTotal = computed(() =>
   cart.value.reduce((total, item) => total + item.price * item.qty, 0),
 );
 
-const pointsDiscount = computed(() =>
-  redeemPoints.value &&
-  currentCustomerData.value &&
-  currentCustomerData.value.points >= 100
-    ? Math.min(currentCustomerData.value.points, subTotal.value)
-    : 0,
-);
+// --- 🔥 25% REDEMPTION LIMIT LOGIC ---
+const maxRedeemablePoints = computed(() => {
+  if (!currentCustomerData.value) return 0;
+
+  // Limit 1: 25% of Subtotal
+  const percentageLimit = 0.25;
+  const billLimit = Math.floor(subTotal.value * percentageLimit);
+
+  // Limit 2: Customer's Available Points
+  // Result: Minimum of both
+  return Math.min(currentCustomerData.value.reward_points, billLimit);
+});
+
+// Watcher: Prevent input exceeding limit
+watch([subTotal, pointsToRedeem], () => {
+  if (currentCustomerData.value) {
+    if (pointsToRedeem.value > maxRedeemablePoints.value) {
+      pointsToRedeem.value = maxRedeemablePoints.value;
+    }
+  }
+});
+
+const pointsDiscount = computed(() => {
+  return pointsToRedeem.value || 0;
+});
 
 const couponDiscountAmount = computed(() =>
   appliedCoupon.value
@@ -385,7 +442,7 @@ const filteredProducts = computed(() => {
   });
 });
 
-// --- Payment & Processing Logic (UPDATED) ---
+// --- Payment & Processing Logic ---
 const handlePaymentTrigger = () => {
   if (cart.value.length === 0) {
     Swal.fire({
@@ -395,12 +452,6 @@ const handlePaymentTrigger = () => {
     });
     return;
   }
-
-  if (!selectedCustomer.value && selectedCustomer.value !== "walk-in") {
-    // If you want to force selection. If walk-in is allowed null, remove this check or adjust logic.
-    // For this code, we allow null if user didn't pick anything, handled in processSale
-  }
-
   showPaymentModal.value = true;
 };
 
@@ -409,7 +460,6 @@ const processSale = async (paymentDetails) => {
   if (cart.value.length === 0) return;
 
   try {
-    // 1. Common Data Payload
     const salePayload = {
       customer_id:
         selectedCustomer.value === "walk-in" ? null : selectedCustomer.value,
@@ -420,15 +470,17 @@ const processSale = async (paymentDetails) => {
         subtotal: item.price * item.qty,
       })),
       sub_total: subTotal.value,
-      discount: (pointsDiscount.value || 0) + (couponDiscountAmount.value || 0),
+
+      discount: couponDiscountAmount.value || 0,
+
+      redeem_amount: pointsToRedeem.value,
+
       grand_total: grandTotal.value,
       payment_method: paymentDetails.payment_method,
       note: paymentDetails.note,
     };
 
-    // 2. Logic Split based on Method
     if (paymentDetails.payment_method === "cash") {
-      // --- CASH PAYMENT ---
       salePayload.paid_amount = paymentDetails.received_amount;
       salePayload.due_amount = paymentDetails.due_amount;
 
@@ -460,8 +512,6 @@ const processSale = async (paymentDetails) => {
     }
   } catch (error) {
     console.error("Sale Error:", error);
-    console.log(error.response?.data);
-
     let msg = "Failed to process sale.";
     if (error.response && error.response.data.message) {
       msg = error.response.data.message;
@@ -474,13 +524,13 @@ const processSale = async (paymentDetails) => {
   }
 };
 
-// Helper for Cash Success
 const handleSuccess = (saleData) => {
   showPaymentModal.value = false;
   resetCartState();
   completedSaleData.value = saleData;
   showInvoiceModal.value = true;
   fetchProducts();
+  fetchCustomers();
   Swal.fire({
     icon: "success",
     title: "Sale Completed!",
@@ -499,6 +549,7 @@ onMounted(async () => {
   loadHeldOrders();
   window.addEventListener("keydown", handleKeydown);
 
+  // Check for Redirect from Payment Gateway
   const urlParams = new URLSearchParams(window.location.search);
   const isSuccess = urlParams.get("payment_success");
   const saleId = urlParams.get("sale_id");
@@ -683,65 +734,129 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="p-3 border-b border-gray-100 dark:border-slate-800">
-        <div class="flex gap-2 mb-2">
-          <div class="relative flex-1">
-            <UserIcon class="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-            <select
-              v-model="selectedCustomer"
-              class="w-full pl-9 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 appearance-none cursor-pointer"
-            >
-              <option :value="null" disabled>Select Customer</option>
-              <option value="walk-in">Walk-in Customer</option>
-              <option
-                v-for="customer in customers"
-                :key="customer.id"
-                :value="customer.id"
+      <div class="p-3 border-b border-gray-100 dark:border-slate-800 space-y-3">
+        <div class="relative">
+          <div class="flex gap-2">
+            <div class="relative flex-1">
+              <UserIcon class="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                v-model="customerSearch"
+                @focus="showCustomerList = true"
+                placeholder="Search Customer (Name/Phone)..."
+                class="w-full pl-9 pr-8 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                v-if="selectedCustomer"
+                @click="clearCustomer"
+                class="absolute right-2 top-2 text-gray-400 hover:text-red-500"
               >
-                {{ customer.name }} ({{ customer.phone }})
-              </option>
-            </select>
+                <XMarkIcon class="w-5 h-5" />
+              </button>
+
+              <div
+                v-if="showCustomerList && filteredCustomersList.length > 0"
+                class="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto"
+              >
+                <ul>
+                  <li
+                    v-for="customer in filteredCustomersList"
+                    :key="customer.id"
+                    @click="selectCustomer(customer)"
+                    class="px-4 py-2 hover:bg-indigo-50 dark:hover:bg-slate-700 cursor-pointer text-sm border-b border-gray-100 last:border-0"
+                  >
+                    <p class="font-bold text-gray-800 dark:text-white">
+                      {{ customer.name }}
+                    </p>
+                    <p class="text-xs text-gray-500">{{ customer.phone }}</p>
+                    <p class="text-xs text-yellow-600 font-bold">
+                      Pts: {{ customer.reward_points }}
+                    </p>
+                  </li>
+                </ul>
+              </div>
+
+              <div
+                v-if="
+                  showCustomerList &&
+                  filteredCustomersList.length === 0 &&
+                  customerSearch
+                "
+                @click="
+                  () => {
+                    selectedCustomer = 'walk-in';
+                    showCustomerList = false;
+                  }
+                "
+                class="absolute z-50 w-full mt-1 bg-white p-2 text-sm text-center cursor-pointer hover:bg-gray-50 border rounded shadow"
+              >
+                No match. Select Walk-in?
+              </div>
+            </div>
+
+            <button
+              @click="addNewCustomer"
+              class="p-2 bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-100 hover:bg-indigo-100"
+            >
+              <UserPlusIcon class="w-5 h-5" />
+            </button>
+            <button
+              @click="holdOrder"
+              class="p-2 bg-amber-50 text-amber-600 rounded-lg border border-amber-100 hover:bg-amber-100 transition"
+              title="Hold Order (F8)"
+            >
+              <PauseIcon class="w-5 h-5" />
+            </button>
           </div>
-          <button
-            @click="addNewCustomer"
-            class="p-2 bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-100"
-          >
-            <UserPlusIcon class="w-5 h-5" />
-          </button>
-          <button
-            @click="holdOrder"
-            class="p-2 bg-amber-50 text-amber-600 rounded-lg border border-amber-100 hover:bg-amber-100 transition"
-            title="Hold Order (F8)"
-          >
-            <PauseIcon class="w-5 h-5" />
-          </button>
         </div>
 
         <div
           v-if="currentCustomerData"
-          class="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/20 p-2 rounded-lg border border-yellow-200 dark:border-yellow-700/50"
+          class="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-lg border border-yellow-200 dark:border-yellow-700/50 space-y-2"
         >
           <div
-            class="flex items-center gap-2 text-yellow-700 dark:text-yellow-400"
+            class="flex items-center justify-between text-yellow-700 dark:text-yellow-400"
           >
-            <GiftIcon class="w-4 h-4" />
-            <span class="text-xs font-bold"
-              >Points: {{ currentCustomerData.points }}</span
-            >
+            <div class="flex items-center gap-2">
+              <GiftIcon class="w-4 h-4" />
+              <span class="text-xs font-bold">
+                Available: {{ currentCustomerData.reward_points || 0 }} pts
+              </span>
+            </div>
           </div>
+
           <div
-            v-if="currentCustomerData.points >= 100"
+            v-if="(currentCustomerData.reward_points || 0) >= 100"
             class="flex items-center gap-2"
           >
-            <label class="text-xs font-medium cursor-pointer" for="redeem"
-              >Redeem</label
+            <label class="text-xs font-medium whitespace-nowrap"
+              >Use Points:</label
             >
-            <input
-              type="checkbox"
-              id="redeem"
-              v-model="redeemPoints"
-              class="rounded text-indigo-600 focus:ring-indigo-500"
-            />
+            <div class="relative w-full">
+              <input
+                type="number"
+                v-model.number="pointsToRedeem"
+                min="0"
+                :max="maxRedeemablePoints"
+                class="w-full px-2 py-1 text-xs border rounded focus:ring-1 focus:ring-yellow-500 outline-none"
+                placeholder="Enter amount"
+              />
+              <span class="absolute right-2 top-1 text-[10px] text-gray-500">
+                Max: {{ maxRedeemablePoints }} (25%)
+              </span>
+            </div>
+          </div>
+          <div v-else class="text-[10px] text-gray-400 italic">
+            * Min 100 points required to redeem.
+          </div>
+
+          <div
+            v-if="
+              maxRedeemablePoints > 0 && pointsToRedeem === maxRedeemablePoints
+            "
+            class="text-[10px] text-orange-600 font-bold"
+          >
+            Maximum redemption limit reached (25% of bill).
           </div>
         </div>
       </div>

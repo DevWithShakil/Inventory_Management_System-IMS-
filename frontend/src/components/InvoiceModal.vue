@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref, onMounted, nextTick } from "vue";
-import axios from "../axios"; // Axios ইমপোর্ট করা হলো
+import axios from "../axios";
 import {
   XMarkIcon,
   PrinterIcon,
@@ -16,7 +16,7 @@ const emit = defineEmits(["close"]);
 
 // --- State ---
 const printMode = ref("a4");
-const settings = ref(null); // সেটিংস ডাটা রাখার জন্য
+const settings = ref(null);
 
 // --- Fetch Settings ---
 const fetchSettings = async () => {
@@ -35,16 +35,23 @@ onMounted(() => {
 });
 
 // --- Computed & Helpers ---
+// 🔥 FIX: আইটেম লুপ করে যোগ করার দরকার নেই, ব্যাকএন্ডের ভ্যালু ব্যবহার করব
 const subTotal = computed(() => {
-  if (!props.sale?.sale_items) return 0;
-  return props.sale.sale_items.reduce((sum, item) => {
-    const qty = Number(item.quantity) || 0;
-    const price = Number(item.unit_price) || 0;
-    return sum + qty * price;
-  }, 0);
+  return Number(props.sale?.subtotal) || 0;
 });
 
-// লোগো URL জেনারেট করার হেল্পার
+const discount = computed(() => {
+  return Number(props.sale?.discount) || 0;
+});
+
+const tax = computed(() => {
+  return Number(props.sale?.tax) || 0;
+});
+
+const grandTotal = computed(() => {
+  return Number(props.sale?.grand_total) || 0;
+});
+
 const getLogoUrl = (path) => {
   if (!path) return null;
   if (path.startsWith("http")) return path;
@@ -162,7 +169,7 @@ const handlePrint = async (mode) => {
               class="text-gray-600 font-mono"
               :class="printMode === 'thermal' ? 'text-xs' : 'text-sm mt-1'"
             >
-              #{{ String(sale?.invoice_no || sale?.id).padStart(4, "0") }}
+              #{{ String(sale?.invoice_no || sale?.id) }}
             </p>
             <p
               class="text-gray-500"
@@ -214,7 +221,9 @@ const handlePrint = async (mode) => {
             >
               Status
             </p>
-            <span class="font-bold text-sm">{{ sale?.payment_status }}</span>
+            <span class="font-bold text-sm uppercase">{{
+              sale?.payment_status
+            }}</span>
           </div>
         </div>
 
@@ -278,12 +287,20 @@ const handlePrint = async (mode) => {
 
             <div
               class="flex justify-between text-gray-600 mb-1"
-              v-if="sale?.discount > 0"
+              v-if="discount > 0"
             >
               <span>Discount:</span>
               <span
                 >- {{ settings?.currency_symbol || "৳" }}
-                {{ Number(sale?.discount).toLocaleString() }}</span
+                {{ discount.toLocaleString() }}</span
+              >
+            </div>
+
+            <div class="flex justify-between text-gray-600 mb-1" v-if="tax > 0">
+              <span>Tax/VAT:</span>
+              <span
+                >+ {{ settings?.currency_symbol || "৳" }}
+                {{ tax.toLocaleString() }}</span
               >
             </div>
 
@@ -294,7 +311,7 @@ const handlePrint = async (mode) => {
               <span>Total:</span>
               <span
                 >{{ settings?.currency_symbol || "৳" }}
-                {{ Number(sale?.grand_total).toLocaleString() }}</span
+                {{ grandTotal.toLocaleString() }}</span
               >
             </div>
 

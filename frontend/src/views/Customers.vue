@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, computed, watch } from "vue";
-import { useRouter, useRoute } from "vue-router"; // Router import
+import { useRouter, useRoute } from "vue-router";
 import axios from "../axios";
 import Swal from "sweetalert2";
 import CustomerFormModal from "../components/CustomerFormModal.vue";
@@ -83,11 +83,11 @@ const deleteCustomer = async (id) => {
   }
 };
 
-// --- History Feature (Placeholder) ---
+// --- History Feature ---
 const viewHistory = (customer) => {
   Swal.fire({
     title: `History: ${customer.name}`,
-    text: "Order history feature will be available once Sales Module is ready!",
+    text: `Total Points Earned: ${customer.reward_points || 0}`, // History তেও পয়েন্ট দেখালাম
     icon: "info",
   });
 };
@@ -115,12 +115,10 @@ const openEditModal = (customer) => {
   showModal.value = true;
 };
 
-//  Updated Modal Close: Cleans URL query
 const handleModalClose = (refresh) => {
   showModal.value = false;
   selectedCustomer.value = null;
 
-  // Remove '?action=add' from URL
   if (route.query.action) {
     router.replace({ query: null });
   }
@@ -240,13 +238,16 @@ onMounted(() => fetchCustomers());
                   }}</span>
                 </div>
               </td>
+
               <td class="px-6 py-3 text-center">
                 <span
                   class="px-3 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold flex items-center justify-center gap-1 w-max mx-auto"
                 >
-                  <GiftIcon class="w-3 h-3" /> {{ customer.points || 0 }} pts
+                  <GiftIcon class="w-3 h-3" />
+                  {{ customer.reward_points || 0 }} pts
                 </span>
               </td>
+
               <td
                 class="px-6 py-3 text-right font-bold text-gray-800 dark:text-white"
               >

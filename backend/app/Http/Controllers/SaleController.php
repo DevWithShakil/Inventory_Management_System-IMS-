@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Sale;
 use App\Models\Product;
 use App\Models\SaleItem;
+use App\Models\Customer;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -48,15 +49,16 @@ class SaleController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(Request $request)
+   public function store(Request $request)
     {
         $request->validate([
-            'customer_id' => 'nullable|exists:customers,id',
-            'items' => 'required|array|min:1',
+            'customer_id'    => 'nullable|exists:customers,id',
+            'redeem_amount'  => 'nullable|integer|min:0',
+            'items'          => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
-            'items.*.quantity' => 'required|integer|min:1',
+            'items.*.quantity'   => 'required|integer|min:1',
             'items.*.unit_price' => 'required|numeric|min:0',
-            'paid_amount' => 'required|numeric|min:0',
+            'paid_amount'    => 'required|numeric|min:0',
             'payment_method' => 'required|string',
         ]);
 
@@ -82,19 +84,47 @@ class SaleController extends Controller
 
                 $itemsToInsert[] = [
                     'product_obj' => $product,
-                    'product_id' => $item['product_id'],
-                    'quantity' => $item['quantity'],
-                    'unit_price' => $item['unit_price'],
-                    'subtotal' => $lineTotal
+                    'product_id'  => $item['product_id'],
+                    'quantity'    => $item['quantity'],
+                    'unit_price'  => $item['unit_price'],
+                    'subtotal'    => $lineTotal
                 ];
             }
 
-            $discount = $request->discount ?? 0;
+            $pointsDiscount = 0;
+            $customer = null;
+
+            if ($request->customer_id) {
+                $customer = Customer::find($request->customer_id);
+                $redeemAmount = $request->redeem_amount ?? 0;
+
+                if ($customer && $redeemAmount > 0) {
+
+                    if ($customer->reward_points < $redeemAmount) {
+                        throw new \Exception("Insufficient reward points! Available: " . $customer->reward_points);
+                    }
+
+
+                    $limitPercentage = 0.25;
+                    $maxRedeemable = floor($subtotal * $limitPercentage);
+
+                    if ($redeemAmount > $maxRedeemable) {
+                        throw new \Exception("You can redeem max {$maxRedeemable} points for this order (25% of Total).");
+                    }
+
+                    $pointsDiscount = $redeemAmount;
+                }
+            }
+
+            $manualDiscount = $request->discount ?? 0;
+            $totalDiscount = $manualDiscount + $pointsDiscount;
+
             $tax = $request->tax ?? 0;
-            $grandTotal = ($subtotal + $tax) - $discount;
+            $grandTotal = ($subtotal + $tax) - $totalDiscount;
+
+            if ($grandTotal < 0) $grandTotal = 0;
 
             $dueAmount = $grandTotal - $request->paid_amount;
-
 
             if ($dueAmount <= 0) {
                 $paymentStatus = 'paid';
@@ -107,46 +137,62 @@ class SaleController extends Controller
 
             $invoiceNo = 'INV-' . time() . rand(10,99);
 
+
             $sale = Sale::create([
-                'customer_id' => $request->customer_id,
-                'invoice_no' => $invoiceNo,
-                'date' => $request->date ?? now(),
-                'subtotal' => $subtotal,
-                'discount' => $discount,
-                'tax' => $tax,
-                'grand_total' => $grandTotal,
-                'paid_amount' => $request->paid_amount,
-                'due_amount' => $dueAmount,
+                'customer_id'    => $request->customer_id,
+                'invoice_no'     => $invoiceNo,
+                'date'           => $request->date ?? now(),
+                'subtotal'       => $subtotal,
+                'discount'       => $totalDiscount,
+                'tax'            => $tax,
+                'grand_total'    => $grandTotal,
+                'paid_amount'    => $request->paid_amount,
+                'due_amount'     => $dueAmount,
                 'payment_method' => $request->payment_method,
                 'payment_status' => $paymentStatus,
-                'created_by' => auth()->id() ?? 1,
+                'created_by'     => auth()->id() ?? 1,
             ]);
+
 
             foreach ($itemsToInsert as $itemData) {
                 SaleItem::create([
-                    'sale_id' => $sale->id,
+                    'sale_id'    => $sale->id,
                     'product_id' => $itemData['product_id'],
-                    'quantity' => $itemData['quantity'],
+                    'quantity'   => $itemData['quantity'],
                     'unit_price' => $itemData['unit_price'],
-                    'subtotal' => $itemData['subtotal']
+                    'subtotal'   => $itemData['subtotal']
                 ]);
 
                 $itemData['product_obj']->decrement('stock_quantity', $itemData['quantity']);
             }
 
+
+            if ($customer) {
+
+                if ($pointsDiscount > 0) {
+                    $customer->decrement('reward_points', $pointsDiscount);
+                }
+
+
+                $newPointsEarned = floor($grandTotal / 100);
+                if ($newPointsEarned > 0) {
+                    $customer->increment('reward_points', $newPointsEarned);
+                }
+            }
+
             DB::commit();
 
             return response()->json([
-                'status' => true,
+                'status'  => true,
                 'message' => 'Sale created successfully',
-                'data' => $sale->load('customer', 'sale_items.product')
+                'data'    => $sale->load('customer', 'sale_items.product')
             ], 201);
 
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Sale Error: ' . $e->getMessage());
             return response()->json([
-                'status' => false,
+                'status'  => false,
                 'message' => $e->getMessage()
             ], 400);
         }
