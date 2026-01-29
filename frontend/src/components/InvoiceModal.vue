@@ -5,6 +5,7 @@ import {
   XMarkIcon,
   PrinterIcon,
   ReceiptPercentIcon,
+  ArrowUturnLeftIcon, // ✅ Added Icon
 } from "@heroicons/vue/24/outline";
 
 const props = defineProps({
@@ -35,22 +36,10 @@ onMounted(() => {
 });
 
 // --- Computed & Helpers ---
-// 🔥 FIX: আইটেম লুপ করে যোগ করার দরকার নেই, ব্যাকএন্ডের ভ্যালু ব্যবহার করব
-const subTotal = computed(() => {
-  return Number(props.sale?.subtotal) || 0;
-});
-
-const discount = computed(() => {
-  return Number(props.sale?.discount) || 0;
-});
-
-const tax = computed(() => {
-  return Number(props.sale?.tax) || 0;
-});
-
-const grandTotal = computed(() => {
-  return Number(props.sale?.grand_total) || 0;
-});
+const subTotal = computed(() => Number(props.sale?.subtotal) || 0);
+const discount = computed(() => Number(props.sale?.discount) || 0);
+const tax = computed(() => Number(props.sale?.tax) || 0);
+const grandTotal = computed(() => Number(props.sale?.grand_total) || 0);
 
 const getLogoUrl = (path) => {
   if (!path) return null;
@@ -337,6 +326,94 @@ const handlePrint = async (mode) => {
         </div>
 
         <div
+          v-if="sale?.sales_returns && sale.sales_returns.length > 0"
+          class="mt-6 border-t border-dashed border-gray-300 pt-4"
+        >
+          <h3
+            class="font-bold flex items-center gap-1 mb-2"
+            :class="
+              printMode === 'thermal'
+                ? 'text-xs text-black'
+                : 'text-sm text-rose-600'
+            "
+          >
+            <ArrowUturnLeftIcon class="w-4 h-4" /> Return History
+          </h3>
+
+          <div
+            v-for="ret in sale.sales_returns"
+            :key="ret.id"
+            class="mb-3"
+            :class="
+              printMode !== 'thermal'
+                ? 'bg-rose-50 p-3 rounded-lg border border-rose-100'
+                : 'border-b border-black pb-2'
+            "
+          >
+            <div
+              class="flex justify-between mb-1"
+              :class="
+                printMode === 'thermal'
+                  ? 'text-[10px]'
+                  : 'text-xs text-gray-500'
+              "
+            >
+              <span><b>ID:</b> {{ ret.return_no }}</span>
+              <span>{{ new Date(ret.date).toLocaleDateString() }}</span>
+            </div>
+
+            <table
+              class="w-full text-left"
+              :class="printMode === 'thermal' ? 'text-[10px]' : 'text-xs'"
+            >
+              <thead>
+                <tr
+                  class="text-gray-500 border-b border-gray-300"
+                  :class="{ 'text-rose-400': printMode !== 'thermal' }"
+                >
+                  <th class="pb-1">Product</th>
+                  <th class="pb-1 text-center">Qty</th>
+                  <th class="pb-1 text-center">Cond.</th>
+                  <th class="pb-1 text-right">Refund</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="rItem in ret.return_items" :key="rItem.id">
+                  <td class="py-1">{{ rItem.product?.name }}</td>
+                  <td class="py-1 text-center">{{ rItem.quantity }}</td>
+                  <td class="py-1 text-center">
+                    <span v-if="printMode === 'thermal'">
+                      {{ rItem.return_condition === "good" ? "OK" : "DMG" }}
+                    </span>
+                    <span v-else>
+                      <span
+                        v-if="rItem.return_condition === 'good'"
+                        class="text-green-600 font-bold"
+                        >Good</span
+                      >
+                      <span v-else class="text-red-600 font-bold">Damaged</span>
+                    </span>
+                  </td>
+                  <td class="py-1 text-right font-bold">
+                    {{ rItem.subtotal }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div
+              class="mt-1 flex justify-between items-center"
+              :class="printMode === 'thermal' ? 'text-[10px]' : 'text-xs'"
+            >
+              <span class="italic text-gray-500 truncate max-w-[150px]">{{
+                ret.note
+              }}</span>
+              <span class="font-bold">Total: {{ ret.refund_amount }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div
           class="text-center text-gray-400 pt-4 border-t border-gray-100 mt-4"
           :class="printMode === 'thermal' ? 'text-[10px]' : 'text-xs mt-12'"
         >
@@ -389,8 +466,16 @@ const handlePrint = async (mode) => {
     color: black;
   }
 
+  /* Thermal printing tweaks for clarity */
   .thermal-layout * {
     color: #000 !important;
+  }
+
+  .thermal-layout .text-rose-600,
+  .thermal-layout .text-red-600,
+  .thermal-layout .text-green-600 {
+    color: #000 !important; /* Force black for thermal */
+    font-weight: bold;
   }
 
   .thermal-layout h1,

@@ -17,8 +17,10 @@ import {
   ArrowPathIcon,
   DocumentArrowDownIcon,
   ArrowUturnLeftIcon,
-  ExclamationCircleIcon, // For partial/due warning
-  CheckCircleIcon, // For clean paid status
+  CheckCircleIcon,
+  ExclamationTriangleIcon,
+  BanknotesIcon,
+  CalendarDaysIcon,
 } from "@heroicons/vue/24/outline";
 
 // --- State ---
@@ -54,17 +56,60 @@ const Toast = Swal.mixin({
 });
 
 // --- Helpers ---
-const getPaymentStatusColor = (status) => {
-  if (!status) return "bg-gray-100 text-gray-700";
+
+// ১. পেমেন্ট স্ট্যাটাস কালার (যদি রিটার্ন না থাকে)
+const getPaymentStatusStyle = (status) => {
+  if (!status) return "bg-gray-100 text-gray-600 border-gray-200";
   const s = status.toLowerCase();
   if (s === "paid")
-    return "bg-emerald-100 text-emerald-700 border border-emerald-200";
+    return "bg-emerald-50 text-emerald-700 border-emerald-200 ring-1 ring-emerald-600/10";
   if (s === "partial")
-    return "bg-amber-100 text-amber-700 border border-amber-200";
-  return "bg-rose-100 text-rose-700 border border-rose-200";
+    return "bg-amber-50 text-amber-700 border-amber-200 ring-1 ring-amber-600/10";
+  return "bg-rose-50 text-rose-700 border-rose-200 ring-1 ring-rose-600/10";
 };
 
-// --- Fetch Data ---
+// ২. রিটার্ন স্ট্যাটাস ডিটেকশন লজিক (Professional Logic)
+const getReturnStatus = (sale) => {
+  // যদি কোনো রিটার্ন না থাকে, নাল রিটার্ন করব (যাতে টেমপ্লেটে পেমেন্ট স্ট্যাটাস দেখায়)
+  if (!sale.sales_returns || sale.sales_returns.length === 0) return null;
+
+  let hasGood = false;
+  let hasBad = false;
+
+  // লুপ করে চেক করছি আইটেমগুলোর কন্ডিশন
+  sale.sales_returns.forEach((ret) => {
+    if (ret.return_items) {
+      ret.return_items.forEach((item) => {
+        if (item.return_condition === "good") hasGood = true;
+        if (item.return_condition === "bad") hasBad = true;
+      });
+    }
+  });
+
+  // লজিক অনুযায়ী ব্যাজ রিটার্ন
+  if (hasGood && hasBad) {
+    return {
+      label: "Mixed Return",
+      class:
+        "bg-orange-50 text-orange-700 border-orange-200 ring-1 ring-orange-600/10",
+      icon: ExclamationTriangleIcon,
+    };
+  }
+  if (hasBad) {
+    return {
+      label: "Returned (Damaged)",
+      class: "bg-red-50 text-red-700 border-red-200 ring-1 ring-red-600/10",
+      icon: ExclamationTriangleIcon,
+    };
+  }
+  return {
+    label: "Returned (Restocked)",
+    class: "bg-blue-50 text-blue-700 border-blue-200 ring-1 ring-blue-600/10",
+    icon: ArrowUturnLeftIcon,
+  };
+};
+
+// --- API Calls ---
 const fetchSales = async (page = 1) => {
   isLoading.value = true;
   try {
@@ -83,18 +128,14 @@ const fetchSales = async (page = 1) => {
   }
 };
 
-// Load Sale Details
 const loadSaleDetails = async (id, type = "invoice") => {
   isInvoiceLoading.value = true;
   try {
     const response = await axios.get(`/sales/${id}`);
     if (response.data.status) {
       selectedSale.value = response.data.data;
-      if (type === "invoice") {
-        showInvoiceModal.value = true;
-      } else if (type === "return") {
-        showReturnModal.value = true;
-      }
+      if (type === "invoice") showInvoiceModal.value = true;
+      else if (type === "return") showReturnModal.value = true;
     }
   } catch (error) {
     Toast.fire({ icon: "error", title: "Unable to load details" });
@@ -106,7 +147,7 @@ const loadSaleDetails = async (id, type = "invoice") => {
 const deleteSale = async (id) => {
   const result = await Swal.fire({
     title: "Are you sure?",
-    text: "This will permanently delete the sale record.",
+    text: "This record will be permanently deleted.",
     icon: "warning",
     showCancelButton: true,
     confirmButtonColor: "#4f46e5",
@@ -118,26 +159,22 @@ const deleteSale = async (id) => {
     try {
       const response = await axios.delete(`/sales/${id}`);
       if (response.data.status) {
-        Toast.fire({ icon: "success", title: "Sale deleted successfully" });
+        Toast.fire({ icon: "success", title: "Deleted successfully" });
         fetchSales(pagination.value.current_page || 1);
       }
     } catch (error) {
-      Swal.fire(
-        "Error",
-        "Cannot delete sale with associated returns or items.",
-        "error",
-      );
+      Swal.fire("Error", "Cannot delete sale with existing returns.", "error");
     }
   }
 };
 
-// Export CSV (Simplified for brevity, logic remains same)
-const exportToCSV = () => {
-  /* ... existing export logic ... */
-};
+// Reset Filters
 const resetFilters = () => {
   filters.value = { search: "", start_date: "", end_date: "", status: "" };
   fetchSales(1);
+};
+const exportToCSV = () => {
+  /* Add export logic here */
 };
 
 // Watchers
@@ -168,103 +205,111 @@ onMounted(() => fetchSales());
     >
       <div>
         <h2
-          class="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2"
+          class="text-2xl font-bold text-gray-900 dark:text-white tracking-tight"
         >
-          Sales & Invoices
-          <span
-            class="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-800 text-xs text-gray-500 font-normal border dark:border-slate-700"
-          >
-            {{ pagination.total || 0 }} Records
-          </span>
+          Sales & Returns
         </h2>
-        <p class="text-sm text-gray-500 dark:text-gray-400">
-          Track your sales, payments, and returns.
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          Manage invoices, track payments, and monitor return conditions.
         </p>
       </div>
       <div class="flex gap-3">
         <button
           @click="exportToCSV"
-          class="hidden sm:flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition shadow-sm text-sm font-medium"
+          class="btn-secondary hidden sm:flex items-center gap-2"
         >
           <DocumentArrowDownIcon class="w-5 h-5" /> <span>Export</span>
         </button>
-        <router-link
-          to="/pos"
-          class="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-md hover:shadow-lg transition transform active:scale-95 text-sm font-bold"
-        >
+        <router-link to="/pos" class="btn-primary flex items-center gap-2">
           <PlusIcon class="w-5 h-5" /> <span>New Sale</span>
         </router-link>
       </div>
     </div>
 
     <div
-      class="bg-white dark:bg-slate-900 p-5 rounded-xl border border-gray-200 dark:border-slate-800 shadow-sm grid grid-cols-1 md:grid-cols-12 gap-4 items-end"
+      class="bg-white dark:bg-slate-900 p-4 rounded-lg border border-gray-200 dark:border-slate-800 shadow-sm"
     >
-      <div class="md:col-span-4">
-        <label
-          class="block text-xs font-bold text-gray-400 mb-1 uppercase tracking-wider"
-          >Search</label
-        >
-        <div class="relative">
-          <MagnifyingGlassIcon
-            class="absolute left-3 top-2.5 h-5 w-5 text-gray-400"
-          />
+      <div class="flex flex-col md:flex-row gap-4">
+        <div class="flex-1 relative">
+          <div
+            class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"
+          >
+            <MagnifyingGlassIcon class="h-5 w-5 text-gray-400" />
+          </div>
           <input
             v-model="filters.search"
             type="text"
-            placeholder="Invoice, Name or Phone..."
-            class="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition dark:text-white"
+            placeholder="Search by Invoice, Name, Phone..."
+            class="input-field pl-10"
           />
         </div>
-      </div>
-      <div class="md:col-span-4 grid grid-cols-2 gap-2">
-        <div>
-          <label
-            class="block text-xs font-bold text-gray-400 mb-1 uppercase tracking-wider"
-            >From</label
-          >
-          <input
-            v-model="filters.start_date"
-            type="date"
-            class="w-full px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm outline-none text-gray-600 dark:text-gray-300 focus:ring-2 focus:ring-indigo-500"
-          />
+
+        <div class="flex gap-2">
+          <div class="relative">
+            <input
+              v-model="filters.start_date"
+              type="date"
+              class="input-field pl-9 w-40"
+            />
+            <CalendarDaysIcon
+              class="h-5 w-5 text-gray-400 absolute left-3 top-2.5 pointer-events-none"
+            />
+          </div>
+          <span class="self-center text-gray-400">-</span>
+          <div class="relative">
+            <input
+              v-model="filters.end_date"
+              type="date"
+              class="input-field pl-9 w-40"
+            />
+            <CalendarDaysIcon
+              class="h-5 w-5 text-gray-400 absolute left-3 top-2.5 pointer-events-none"
+            />
+          </div>
         </div>
-        <div>
-          <label
-            class="block text-xs font-bold text-gray-400 mb-1 uppercase tracking-wider"
-            >To</label
-          >
-          <input
-            v-model="filters.end_date"
-            type="date"
-            class="w-full px-3 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm outline-none text-gray-600 dark:text-gray-300 focus:ring-2 focus:ring-indigo-500"
+
+        <div class="w-full md:w-56 relative">
+          <FunnelIcon
+            class="h-5 w-5 text-gray-400 absolute left-3 top-2.5 pointer-events-none"
           />
-        </div>
-      </div>
-      <div class="md:col-span-3">
-        <label
-          class="block text-xs font-bold text-gray-400 mb-1 uppercase tracking-wider"
-          >Status</label
-        >
-        <div class="relative">
-          <FunnelIcon class="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
           <select
             v-model="filters.status"
-            class="w-full pl-10 pr-4 py-2 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm outline-none text-gray-600 dark:text-gray-300 focus:ring-2 focus:ring-indigo-500 cursor-pointer appearance-none"
+            class="input-field pl-10 appearance-none cursor-pointer"
           >
-            <option value="">All Status</option>
-            <option value="paid">Paid</option>
-            <option value="partial">Partial</option>
-            <option value="due">Due</option>
-            <option value="returned">Returned</option>
+            <option value="">All Transactions</option>
+            <optgroup label="Payment Status">
+              <option value="paid">Paid</option>
+              <option value="partial">Partial</option>
+              <option value="due">Due</option>
+            </optgroup>
+            <optgroup label="Return Status">
+              <option value="returned">All Returns</option>
+              <option value="returned_good">Restocked (Good)</option>
+              <option value="returned_bad">Damaged (Bad Stock)</option>
+            </optgroup>
           </select>
+          <div
+            class="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none"
+          >
+            <svg
+              class="w-4 h-4 text-gray-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M19 9l-7 7-7-7"
+              ></path>
+            </svg>
+          </div>
         </div>
-      </div>
-      <div class="md:col-span-1">
+
         <button
           @click="resetFilters"
-          class="w-full py-2 bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-gray-600 dark:text-gray-300 rounded-lg transition flex items-center justify-center"
-          title="Reset Filters"
+          class="p-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition border border-gray-200 dark:border-slate-700"
         >
           <ArrowPathIcon
             class="w-5 h-5"
@@ -275,7 +320,7 @@ onMounted(() => fetchSales());
     </div>
 
     <div
-      class="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden"
+      class="bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden"
     >
       <div class="overflow-x-auto">
         <table class="w-full text-left border-collapse">
@@ -283,38 +328,18 @@ onMounted(() => fetchSales());
             <tr
               class="bg-gray-50 dark:bg-slate-800/50 border-b border-gray-200 dark:border-slate-800"
             >
-              <th
-                class="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider"
-              >
-                Invoice Info
-              </th>
-              <th
-                class="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider"
-              >
-                Customer
-              </th>
-              <th
-                class="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-right"
-              >
-                Financials
-              </th>
-              <th
-                class="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-center"
-              >
-                Status
-              </th>
-              <th
-                class="px-6 py-4 text-xs font-bold text-gray-500 uppercase tracking-wider text-center"
-              >
-                Actions
-              </th>
+              <th class="table-head">Invoice</th>
+              <th class="table-head">Customer</th>
+              <th class="table-head text-right">Amount</th>
+              <th class="table-head text-center">Current Status</th>
+              <th class="table-head text-center">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-slate-800">
             <tr v-if="isLoading">
-              <td colspan="5" class="px-6 py-10 text-center text-gray-500">
-                <span class="animate-spin inline-block mr-2">⏳</span> Loading
-                sales data...
+              <td colspan="5" class="px-6 py-12 text-center text-gray-500">
+                <span class="inline-block animate-spin mr-2">⟳</span> Loading
+                records...
               </td>
             </tr>
             <tr
@@ -324,135 +349,111 @@ onMounted(() => fetchSales());
               class="group hover:bg-gray-50 dark:hover:bg-slate-800/50 transition duration-150"
             >
               <td class="px-6 py-4 whitespace-nowrap">
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-3">
                   <div
-                    class="p-1.5 bg-indigo-50 dark:bg-indigo-900/20 rounded text-indigo-600 dark:text-indigo-400"
+                    class="h-10 w-10 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400"
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                      class="w-5 h-5"
-                    >
-                      <path
-                        fill-rule="evenodd"
-                        d="M4.5 2A1.5 1.5 0 003 3.5v13A1.5 1.5 0 004.5 18h11a1.5 1.5 0 001.5-1.5V7.621a1.5 1.5 0 00-.44-1.06l-4.12-4.122A1.5 1.5 0 0011.378 2H4.5zm2.25 8.5a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5zm0 3a.75.75 0 000 1.5h6.5a.75.75 0 000-1.5h-6.5z"
-                        clip-rule="evenodd"
-                      />
-                    </svg>
+                    <BanknotesIcon class="w-6 h-6" />
                   </div>
                   <div>
                     <span
-                      class="block text-sm font-bold text-gray-800 dark:text-white font-mono"
+                      class="block text-sm font-bold text-gray-900 dark:text-white font-mono tracking-tight"
                     >
                       {{
                         sale.invoice_no ||
                         "#INV-" + String(sale.id).padStart(4, "0")
                       }}
                     </span>
-                    <span class="text-xs text-gray-500">
-                      {{ new Date(sale.date).toLocaleDateString() }}
-                    </span>
+                    <span class="text-xs text-gray-500">{{
+                      new Date(sale.date).toLocaleDateString()
+                    }}</span>
                   </div>
                 </div>
               </td>
 
               <td class="px-6 py-4 whitespace-nowrap">
-                <div class="flex items-center gap-3">
-                  <div
-                    class="h-8 w-8 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300"
-                  >
-                    {{ sale.customer?.name?.charAt(0).toUpperCase() || "W" }}
-                  </div>
-                  <div>
-                    <div
-                      class="text-sm font-medium text-gray-800 dark:text-white"
-                    >
-                      {{ sale.customer?.name || "Walk-in Customer" }}
-                    </div>
-                    <div class="text-xs text-gray-500">
-                      {{ sale.customer?.phone || "" }}
-                    </div>
-                  </div>
+                <div class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ sale.customer?.name || "Walk-in Customer" }}
+                </div>
+                <div class="text-xs text-gray-500 font-mono mt-0.5">
+                  {{ sale.customer?.phone || "N/A" }}
                 </div>
               </td>
 
               <td class="px-6 py-4 whitespace-nowrap text-right">
                 <div class="flex flex-col items-end">
-                  <div class="text-sm font-bold text-gray-900 dark:text-white">
-                    ৳ {{ Number(sale.grand_total).toLocaleString() }}
-                  </div>
-
-                  <div
-                    v-if="sale.due_amount > 0"
-                    class="text-[10px] text-red-600 font-bold bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded mt-0.5"
+                  <span class="text-sm font-bold text-gray-900 dark:text-white"
+                    >৳ {{ Number(sale.grand_total).toLocaleString() }}</span
                   >
-                    Due: ৳ {{ Number(sale.due_amount).toLocaleString() }}
-                  </div>
-
-                  <div
+                  <span
                     v-if="sale.sales_returns_sum_refund_amount > 0"
-                    class="flex items-center gap-1 text-[10px] text-rose-500 font-semibold mt-0.5"
+                    class="text-[11px] text-rose-600 font-medium mt-0.5 flex items-center gap-1 bg-rose-50 px-1.5 py-0.5 rounded"
                   >
-                    <ArrowUturnLeftIcon class="w-3 h-3" />
-                    Ref: -৳
+                    <ArrowUturnLeftIcon class="w-3 h-3" /> Refunded: ৳
                     {{
                       Number(
                         sale.sales_returns_sum_refund_amount,
                       ).toLocaleString()
                     }}
-                  </div>
+                  </span>
+                  <span
+                    v-else-if="sale.due_amount > 0"
+                    class="text-[11px] text-amber-600 font-medium mt-0.5 bg-amber-50 px-1.5 py-0.5 rounded"
+                  >
+                    Due: ৳ {{ Number(sale.due_amount).toLocaleString() }}
+                  </span>
                 </div>
               </td>
 
               <td class="px-6 py-4 whitespace-nowrap text-center">
-                <div class="flex flex-col items-center gap-1">
-                  <span
-                    :class="`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${getPaymentStatusColor(sale.payment_status)}`"
-                  >
-                    {{ sale.payment_status }}
-                  </span>
+                <span
+                  v-if="getReturnStatus(sale)"
+                  :class="`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border shadow-sm ${getReturnStatus(sale).class}`"
+                >
+                  <component
+                    :is="getReturnStatus(sale).icon"
+                    class="w-3.5 h-3.5"
+                  />
+                  {{ getReturnStatus(sale).label }}
+                </span>
 
-                  <span
-                    v-if="sale.sales_returns_count > 0"
-                    class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-gray-800 text-white dark:bg-white dark:text-gray-900 border border-gray-600 shadow-sm"
-                  >
-                    <ArrowUturnLeftIcon class="w-3 h-3 mr-1" /> Returned
-                  </span>
-                </div>
+                <span
+                  v-else
+                  :class="`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border shadow-sm ${getPaymentStatusStyle(sale.payment_status)}`"
+                >
+                  <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
+                  {{ sale.payment_status }}
+                </span>
               </td>
 
               <td class="px-6 py-4 whitespace-nowrap text-center">
                 <div
-                  class="flex items-center justify-center gap-1 opacity-80 group-hover:opacity-100 transition"
+                  class="flex justify-center items-center gap-1 opacity-60 group-hover:opacity-100 transition duration-200"
                 >
                   <button
                     @click="loadSaleDetails(sale.id, 'invoice')"
-                    class="p-2 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
+                    class="action-btn text-gray-500 hover:text-indigo-600 hover:bg-indigo-50"
                     title="View Invoice"
                   >
                     <EyeIcon class="w-5 h-5" />
                   </button>
-
                   <button
                     @click="loadSaleDetails(sale.id, 'invoice')"
-                    class="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                    title="Print Invoice"
+                    class="action-btn text-gray-500 hover:text-blue-600 hover:bg-blue-50"
+                    title="Print"
                   >
                     <PrinterIcon class="w-5 h-5" />
                   </button>
-
                   <button
                     @click="loadSaleDetails(sale.id, 'return')"
-                    class="p-2 text-gray-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition"
-                    title="Return Items"
+                    class="action-btn text-gray-500 hover:text-orange-600 hover:bg-orange-50"
+                    title="Return"
                   >
                     <ArrowUturnLeftIcon class="w-5 h-5" />
                   </button>
-
                   <button
                     @click="deleteSale(sale.id)"
-                    class="p-2 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                    class="action-btn text-gray-500 hover:text-red-600 hover:bg-red-50"
                     title="Delete"
                   >
                     <TrashIcon class="w-5 h-5" />
@@ -466,26 +467,26 @@ onMounted(() => fetchSales());
 
       <div
         v-if="pagination.total > 0"
-        class="px-6 py-4 border-t border-gray-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4 bg-gray-50 dark:bg-slate-800/50"
+        class="px-6 py-4 border-t border-gray-200 dark:border-slate-800 flex justify-between items-center bg-gray-50 dark:bg-slate-800/50"
       >
-        <span class="text-sm text-gray-500 dark:text-gray-400">
-          Showing <b>{{ pagination.from }}</b> to <b>{{ pagination.to }}</b> of
-          <b>{{ pagination.total }}</b> results
-        </span>
+        <span class="text-sm text-gray-500"
+          >Showing <b>{{ pagination.from }}</b
+          >-<b>{{ pagination.to }}</b> of <b>{{ pagination.total }}</b></span
+        >
         <div class="flex gap-2">
           <button
             @click="fetchSales(pagination.current_page - 1)"
             :disabled="!pagination.prev_page_url"
-            class="flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="pagination-btn"
           >
-            <ChevronLeftIcon class="w-4 h-4" /> Previous
+            Prev
           </button>
           <button
             @click="fetchSales(pagination.current_page + 1)"
             :disabled="!pagination.next_page_url"
-            class="flex items-center gap-1 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            class="pagination-btn"
           >
-            Next <ChevronRightIcon class="w-4 h-4" />
+            Next
           </button>
         </div>
       </div>
@@ -504,3 +505,25 @@ onMounted(() => fetchSales());
     />
   </div>
 </template>
+
+<style scoped>
+/* Utility Classes for Cleaner Template */
+.input-field {
+  @apply w-full py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition text-gray-700 dark:text-gray-200;
+}
+.btn-primary {
+  @apply px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm hover:shadow transition text-sm font-medium;
+}
+.btn-secondary {
+  @apply px-4 py-2 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700 transition shadow-sm text-sm font-medium;
+}
+.table-head {
+  @apply px-6 py-3 text-xs font-bold text-gray-500 uppercase tracking-wider bg-gray-50 dark:bg-slate-800/50;
+}
+.action-btn {
+  @apply p-2 rounded-lg transition duration-200;
+}
+.pagination-btn {
+  @apply px-3 py-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded text-sm hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed text-gray-600 dark:text-gray-300 transition;
+}
+</style>

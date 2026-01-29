@@ -28,36 +28,26 @@ watch(
   () => props.sale,
   (newSale) => {
     if (newSale && newSale.sale_items) {
-      // 🔥 Calculate Discount Ratio (কত পারসেন্ট ডিসকাউন্ট পেয়েছিল)
-      // Formula: (Subtotal - (Grand Total - Tax)) / Subtotal
-      // অথবা সহজভাবে: Total Discount / Subtotal
-
-      // এখানে আমরা বের করছি ১ টাকার প্রোডাক্টে সে আসলে কত টাকা পেমেন্ট করেছে
-      // Paid Ratio = (Grand Total - Tax) / Subtotal (Tax আলাদা হ্যান্ডেল করা ভালো, তবে সহজ করার জন্য আমরা গ্রস রেশিও নিচ্ছি)
-
-      let totalDiscount = Number(newSale.discount || 0); // Coupon + Other Discounts
-      // যদি পয়েন্ট ভ্যালু আলাদা ফিল্ডে থাকে তবে যোগ করবেন, না থাকলে grand_total এর লজিক ব্যবহার করব
-
+      // Discount Ratio Calculation
+      let totalDiscount = Number(newSale.discount || 0);
       const subtotal = newSale.sale_items.reduce(
         (sum, item) => sum + item.unit_price * item.quantity,
         0,
       );
-
-      // ডিসকাউন্ট রেশিও (প্রতি ১ টাকার প্রোডাক্টে কত টাকা ডিসকাউন্ট)
       const discountRatio = subtotal > 0 ? totalDiscount / subtotal : 0;
 
       returnItems.value = newSale.sale_items.map((item) => {
         const originalPrice = Number(item.unit_price);
-        // 🔥 আসল কেনা দাম (Discount বাদ দিয়ে)
         const effectivePrice = originalPrice - originalPrice * discountRatio;
 
         return {
           product_id: item.product_id,
           product_name: item.product?.name || "Unknown Product",
           original_price: originalPrice,
-          unit_price: parseFloat(effectivePrice.toFixed(2)), // Refundable Price (Auto Calculated)
+          unit_price: parseFloat(effectivePrice.toFixed(2)),
           purchased_qty: item.quantity,
           return_qty: 0,
+          return_condition: "good", // 🔥 Default condition: Good
         };
       });
 
@@ -83,7 +73,8 @@ const submitReturn = async () => {
     .map((item) => ({
       product_id: item.product_id,
       quantity: item.return_qty,
-      unit_price: item.unit_price, // Sending the discounted price
+      unit_price: item.unit_price,
+      return_condition: item.return_condition, // 🔥 Sending condition to backend
     }));
 
   if (itemsToReturn.length === 0) {
@@ -107,7 +98,7 @@ const submitReturn = async () => {
       Swal.fire({
         icon: "success",
         title: "Return Processed!",
-        text: response.data.message, // Backend will say if points restored
+        text: response.data.message,
         timer: 2000,
         showConfirmButton: false,
       });
@@ -158,8 +149,8 @@ const submitReturn = async () => {
                 as="h3"
                 class="text-base font-semibold leading-6 text-gray-900 dark:text-white flex items-center gap-2"
               >
-                <ArrowPathIcon class="h-5 w-5 text-indigo-600" /> Return
-                Products (Invoice #{{ sale?.id }})
+                <ArrowPathIcon class="h-5 w-5 text-indigo-600" />
+                Return Products (Invoice #{{ sale?.id }})
               </DialogTitle>
               <button
                 @click="$emit('close')"
@@ -171,10 +162,15 @@ const submitReturn = async () => {
 
             <div class="px-4 py-5 sm:p-6">
               <div
-                class="mb-4 p-3 bg-blue-50 text-blue-700 text-xs rounded border border-blue-100"
+                class="mb-4 p-3 bg-blue-50 text-blue-700 text-xs rounded border border-blue-100 flex items-start gap-2"
               >
-                ℹ️ <b>Note:</b> Return prices are auto-adjusted based on
-                discounts/coupons applied during sale.
+                <span>ℹ️</span>
+                <div>
+                  <b>Note:</b> Return prices are adjusted for discounts.
+                  <br />
+                  <b>Condition:</b> Select "Damaged" if the item is broken
+                  (won't resell).
+                </div>
               </div>
 
               <div class="space-y-4">
@@ -192,24 +188,24 @@ const submitReturn = async () => {
                           Product
                         </th>
                         <th
-                          class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase"
-                        >
-                          Sold Price
-                        </th>
-                        <th
                           class="px-4 py-2 text-right text-xs font-medium text-indigo-600 uppercase"
                         >
-                          Return Price
+                          Refund Price
                         </th>
                         <th
                           class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase"
                         >
-                          Qty
+                          Condition
                         </th>
                         <th
                           class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase"
                         >
-                          Return
+                          Qty Sold
+                        </th>
+                        <th
+                          class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase"
+                        >
+                          Return Qty
                         </th>
                       </tr>
                     </thead>
@@ -222,19 +218,31 @@ const submitReturn = async () => {
                         >
                           {{ item.product_name }}
                         </td>
-                        <td
-                          class="px-4 py-2 text-sm text-right text-gray-400 line-through"
-                        >
-                          ৳{{ item.original_price }}
-                        </td>
+
                         <td
                           class="px-4 py-2 text-sm text-right font-bold text-gray-800 dark:text-white"
                         >
                           ৳{{ item.unit_price }}
+                          <span
+                            class="block text-[10px] text-gray-400 line-through"
+                            >৳{{ item.original_price }}</span
+                          >
                         </td>
+
+                        <td class="px-4 py-2 text-center">
+                          <select
+                            v-model="item.return_condition"
+                            class="text-xs w-28 px-2 py-1 border border-gray-300 rounded focus:ring-indigo-500 focus:border-indigo-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white"
+                          >
+                            <option value="good">✅ Good</option>
+                            <option value="bad">⚠️ Damaged</option>
+                          </select>
+                        </td>
+
                         <td class="px-4 py-2 text-sm text-center text-gray-600">
                           {{ item.purchased_qty }}
                         </td>
+
                         <td class="px-4 py-2 text-center">
                           <input
                             type="number"

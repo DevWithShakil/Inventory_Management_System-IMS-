@@ -19,6 +19,10 @@ class SaleController extends Controller
             $query = Sale::with('customer')
                 ->withSum('sales_returns', 'refund_amount')
                 ->withCount('sales_returns')
+                // 🔥 New: Load return items to check condition
+                ->with(['sales_returns.return_items' => function($q) {
+                    $q->select('sales_return_id', 'return_condition');
+                }])
                 ->latest();
 
             // Search Filter
@@ -38,11 +42,22 @@ class SaleController extends Controller
                 $query->whereBetween('date', [$request->start_date, $request->end_date]);
             }
 
-            //  Status Filter Logic Updated
+            // 🔥 Updated Status Filter Logic
             if ($request->status) {
                 if ($request->status === 'returned') {
                     $query->whereHas('sales_returns');
-                } else {
+                }
+                elseif ($request->status === 'returned_good') {
+                    $query->whereHas('sales_returns.return_items', function($q) {
+                        $q->where('return_condition', 'good');
+                    });
+                }
+                elseif ($request->status === 'returned_bad') {
+                    $query->whereHas('sales_returns.return_items', function($q) {
+                        $q->where('return_condition', 'bad'); // or 'damaged'
+                    });
+                }
+                else {
                     $query->where('payment_status', $request->status);
                 }
             }
@@ -195,7 +210,11 @@ class SaleController extends Controller
     public function show($id)
     {
         try {
-            $sale = Sale::with(['customer', 'sale_items.product'])->find($id);
+            $sale = Sale::with([
+                'customer',
+                'sale_items.product',
+                'sales_returns.return_items.product'
+            ])->find($id);
 
             if (!$sale) {
                 return response()->json(['status' => false, 'message' => 'Invoice not found'], 404);

@@ -29,6 +29,7 @@ class SalesReturnController extends Controller
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.unit_price' => 'required|numeric|min:0',
+            'items.*.return_condition' => 'required|in:good,bad',
         ]);
 
         try {
@@ -56,7 +57,8 @@ class SalesReturnController extends Controller
                     'product_id' => $item['product_id'],
                     'quantity' => $item['quantity'],
                     'unit_price' => $item['unit_price'],
-                    'subtotal' => $lineTotal
+                    'subtotal' => $lineTotal,
+                    'return_condition' => $item['return_condition']
                 ];
             }
 
@@ -78,17 +80,25 @@ class SalesReturnController extends Controller
                     'product_id' => $itemData['product_id'],
                     'quantity' => $itemData['quantity'],
                     'unit_price' => $itemData['unit_price'],
-                    'subtotal' => $itemData['subtotal']
+                    'subtotal' => $itemData['subtotal'],
+                    'return_condition' => $itemData['return_condition']
                 ]);
 
-                Product::where('id', $itemData['product_id'])
-                    ->increment('stock_quantity', $itemData['quantity']);
+                // Stock Logic: Good -> Main Stock, Bad -> Damaged Stock
+                if ($itemData['return_condition'] === 'good') {
+                    Product::where('id', $itemData['product_id'])
+                        ->increment('stock_quantity', $itemData['quantity']);
+                } else {
+                    Product::where('id', $itemData['product_id'])
+                        ->increment('damaged_quantity', $itemData['quantity']);
+                }
             }
 
             if ($sale->customer_id) {
                 $customer = Customer::find($sale->customer_id);
                 $noteUpdate = "";
 
+                // 1. Restore Redeemed Points
                 if (!empty($sale->redeemed_points) && $sale->redeemed_points > 0) {
                     $originalSubtotal = $sale->subtotal;
 
@@ -103,6 +113,7 @@ class SalesReturnController extends Controller
                     }
                 }
 
+                // 2. Revert Earned Points
                 $pointsEarnedOriginally = floor($totalRefundAmount / 100);
 
                 if ($pointsEarnedOriginally > 0) {
@@ -126,7 +137,7 @@ class SalesReturnController extends Controller
 
             return response()->json([
                 'status' => true,
-                'message' => 'Return Processed! Stock Updated & Points Adjusted.',
+                'message' => 'Return Processed! Inventory updated based on condition.',
                 'data' => $salesReturn
             ], 201);
 

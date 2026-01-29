@@ -10,3 +10,4 @@ Route::get('/', function () {
 Route::post('/ssl/success', [SslCommerzController::class, 'success'])->name('ssl.success');
 Route::post('/ssl/fail', [SslCommerzController::class, 'fail'])->name('ssl.fail');
 Route::post('/ssl/cancel', [SslCommerzController::class, 'cancel'])->name('ssl.cancel');
+
