@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use App\Models\Sale;
 use App\Models\Purchase;
 use App\Models\Product;
+use App\Models\SalesReturn;
+use App\Models\Customer;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Support\Facades\DB;
@@ -13,103 +15,86 @@ use Illuminate\Support\Facades\Log;
 
 class ReportController extends Controller
 {
+    // ==========================================
+    // 1. DASHBOARD OVERVIEW (Complete Logic)
+    // ==========================================
     public function dashboardOverview(Request $request)
     {
         try {
             $range = $request->query('range', 'today');
-
             $startDate = null;
             $endDate = Carbon::now()->endOfDay();
-            $previousStartDate = null;
-            $previousEndDate = null;
 
+            // --- Date Range Logic ---
             switch ($range) {
-                case 'today':
-                    $startDate = Carbon::today();
-                    $previousStartDate = Carbon::yesterday();
-                    $previousEndDate = Carbon::yesterday()->endOfDay();
-                    break;
+                case 'today': $startDate = Carbon::today(); break;
                 case 'yesterday':
                     $startDate = Carbon::yesterday();
                     $endDate = Carbon::yesterday()->endOfDay();
-                    $previousStartDate = Carbon::today()->subDays(2);
-                    $previousEndDate = Carbon::today()->subDays(2)->endOfDay();
                     break;
-                case 'last_7_days':
-                    $startDate = Carbon::now()->subDays(6)->startOfDay();
-                    $previousStartDate = Carbon::now()->subDays(13)->startOfDay();
-                    $previousEndDate = Carbon::now()->subDays(7)->endOfDay();
-                    break;
-                case 'this_month':
-                    $startDate = Carbon::now()->startOfMonth();
-                    $previousStartDate = Carbon::now()->subMonth()->startOfMonth();
-                    $previousEndDate = Carbon::now()->subMonth()->endOfMonth();
-                    break;
+                case 'last_7_days': $startDate = Carbon::now()->subDays(6)->startOfDay(); break;
+                case 'this_month': $startDate = Carbon::now()->startOfMonth(); break;
                 case 'last_month':
                     $startDate = Carbon::now()->subMonth()->startOfMonth();
                     $endDate = Carbon::now()->subMonth()->endOfMonth();
-                    $previousStartDate = Carbon::now()->subMonths(2)->startOfMonth();
-                    $previousEndDate = Carbon::now()->subMonths(2)->endOfMonth();
                     break;
-                case 'all_time':
-                    $startDate = Carbon::create(2000, 1, 1);
-                    break;
-                default:
-                    $startDate = Carbon::today();
+                case 'all_time': $startDate = Carbon::create(2000, 1, 1); break;
+                default: $startDate = Carbon::today();
             }
 
-            // --- MAIN METRICS ---
-            $totalRevenue = Sale::whereBetween('date', [$startDate, $endDate])->sum('grand_total');
-            $totalOrders = Sale::whereBetween('date', [$startDate, $endDate])->count();
+            // ==========================================
+            // 🔥 PERFORMANCE METRICS (Selected Range)
+            // ==========================================
 
-            // 🔥 Total Discount Calculation
-            $totalDiscount = Sale::whereBetween('date', [$startDate, $endDate])->sum('discount');
+            // 1. Sales & Returns
+            $rangeGrossSales = Sale::whereBetween('date', [$startDate, $endDate])->sum('grand_total');
+            $rangeReturns = SalesReturn::whereBetween('date', [$startDate, $endDate])->sum('refund_amount');
+            $rangeNetSales = $rangeGrossSales - $rangeReturns;
 
-            // Cash Flow
-            $totalPaid = Sale::whereBetween('date', [$startDate, $endDate])->sum('paid_amount');
-            $totalDue = Sale::whereBetween('date', [$startDate, $endDate])->sum('due_amount');
+            // 2. Purchases (Use 'grand_total' based on your schema)
+            $rangePurchases = Purchase::whereBetween('date', [$startDate, $endDate])->sum('grand_total');
 
-            // Expense & Profit
-            $costOfGoodsSold = DB::table('sale_items')
+            // 3. COGS (Cost of Goods Sold)
+            $rangeCOGS = DB::table('sale_items')
                 ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
                 ->join('products', 'products.id', '=', 'sale_items.product_id')
                 ->whereBetween('sales.date', [$startDate, $endDate])
                 ->sum(DB::raw('sale_items.quantity * products.cost_price'));
 
-            $netProfit = $totalRevenue - $costOfGoodsSold;
+            // 4. Profit
+            $rangeProfit = $rangeNetSales - $rangeCOGS;
 
-            // Growth Calculation
-            $previousRevenue = Sale::whereBetween('date', [$previousStartDate, $previousEndDate])->sum('grand_total');
-            $growth = 0;
-            if ($previousRevenue > 0) {
-                $growth = (($totalRevenue - $previousRevenue) / $previousRevenue) * 100;
-            } else {
-                $growth = $totalRevenue > 0 ? 100 : 0;
-            }
+            // 5. Activity Breakdown (New Features)
+            $rangeDiscount = Sale::whereBetween('date', [$startDate, $endDate])->sum('discount');
+            $rangeTax = Sale::whereBetween('date', [$startDate, $endDate])->sum('tax');
+            $rangeInvoiceCount = Sale::whereBetween('date', [$startDate, $endDate])->count();
 
-            // Pie Chart Data
-            $payment_methods = Sale::whereBetween('date', [$startDate, $endDate])
-                ->select('payment_method', DB::raw('count(*) as count'))
-                ->groupBy('payment_method')
-                ->pluck('count', 'payment_method');
+            $rangeCashSale = Sale::whereBetween('date', [$startDate, $endDate])
+                                ->where('payment_method', 'cash')
+                                ->sum('paid_amount');
 
-            // Low Stock
-            $lowStockProducts = Product::whereColumn('stock_quantity', '<=', 'alert_quantity')
-                ->select('id', 'name', 'stock_quantity', 'alert_quantity', 'image', 'sku')
-                ->take(5)->get();
+            $rangeDigitalSale = Sale::whereBetween('date', [$startDate, $endDate])
+                                ->where('payment_method', '!=', 'cash')
+                                ->sum('paid_amount');
 
-            // Top Products
-            $topProducts = DB::table('sale_items')
-                ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
-                ->join('products', 'products.id', '=', 'sale_items.product_id')
-                ->whereBetween('sales.date', [$startDate, $endDate])
-                ->select('products.name', 'products.image', 'products.stock_quantity', DB::raw('SUM(sale_items.quantity) as total_sold'))
-                ->groupBy('products.id', 'products.name', 'products.image', 'products.stock_quantity')
-                ->orderByDesc('total_sold')
-                ->limit(5)->get();
+            // ==========================================
+            // 🔥 LIFETIME BUSINESS HEALTH
+            // ==========================================
+            $totalGrossSales = Sale::sum('grand_total');
+            $totalReturns = SalesReturn::sum('refund_amount');
+            $totalNetSales = $totalGrossSales - $totalReturns;
 
-            // Recent Sales
-            $recentSales = Sale::with('customer')->latest()->limit(6)->get();
+            $totalPurchases = Purchase::sum('grand_total');
+            $totalDue = Sale::sum('due_amount');
+            $totalPaid = Sale::sum('paid_amount');
+
+            // Inventory Value (Asset)
+            $currentStockValue = Product::sum(DB::raw('stock_quantity * cost_price'));
+
+            // Counts
+            $totalProducts = Product::count();
+            $lowStockCount = Product::whereColumn('stock_quantity', '<=', 'alert_quantity')->count();
+            $totalCustomers = Customer::count();
 
             // Chart Data
             $chartData = $this->generateChartData($startDate, $endDate, $range);
@@ -118,23 +103,35 @@ class ReportController extends Controller
                 'status' => true,
                 'data' => [
                     'metrics' => [
-                        'revenue'  => $totalRevenue,
-                        'orders'   => $totalOrders,
-                        'expense'  => $costOfGoodsSold, // 🔥 Fixed Variable Name
-                        'profit'   => $netProfit,
-                        'discount' => $totalDiscount,   // 🔥 Ensure this is sent
-                        'paid'     => $totalPaid,
-                        'due'      => $totalDue,
-                        'growth'   => round($growth, 1)
+                        'range_sales' => $rangeNetSales,
+                        'range_returns' => $rangeReturns,
+                        'range_profit' => $rangeProfit,
+                        'range_purchases' => $rangePurchases,
+                        // New Breakdown
+                        'range_discount' => $rangeDiscount,
+                        'range_tax' => $rangeTax,
+                        'range_count' => $rangeInvoiceCount,
+                        'range_cash' => $rangeCashSale,
+                        'range_digital' => $rangeDigitalSale
                     ],
-                    'pie_chart' => [
-                        'labels' => $payment_methods->keys(),
-                        'series' => $payment_methods->values()
+                    'overall' => [
+                        'net_sales' => $totalNetSales,
+                        'total_returns' => $totalReturns,
+                        'total_purchase_spend' => $totalPurchases,
+                        'total_due' => $totalDue,
+                        'total_collected' => $totalPaid,
+                        'inventory_value' => $currentStockValue
                     ],
-                    'low_stock'    => $lowStockProducts,
-                    'top_products' => $topProducts,
-                    'recent_sales' => $recentSales,
-                    'chart'        => $chartData,
+                    'inventory' => [
+                        'total_products' => $totalProducts,
+                        'low_stock' => $lowStockCount,
+                    ],
+                    'users' => [
+                        'total_customers' => $totalCustomers
+                    ],
+                    'chart' => $chartData,
+                    'top_products' => $this->getTopProducts($startDate, $endDate),
+                    'low_stock_list' => $this->getLowStockList(),
                     'filter_label' => ucfirst(str_replace('_', ' ', $range))
                 ]
             ]);
@@ -145,9 +142,53 @@ class ReportController extends Controller
         }
     }
 
-    // ... (generateChartData, lowStockReport, dailySalesReport মেথডগুলো একই থাকবে) ...
-    // নিচের অংশটুকু আপনার আগের কোড থেকেই থাকবে, তাই এখানে রিপিট করলাম না।
-    // শুধু dashboardOverview মেথডটা রিপ্লেস করলেই হবে।
+    // ==========================================
+    // 2. LOW STOCK REPORT
+    // ==========================================
+    public function lowStockReport()
+    {
+        $products = Product::whereColumn('stock_quantity', '<=', 'alert_quantity')
+            ->with(['category', 'brand'])
+            ->get();
+        return response()->json(['status' => true, 'data' => $products]);
+    }
+
+    // ==========================================
+    // 3. DAILY SALES REPORT
+    // ==========================================
+    public function dailySalesReport(Request $request)
+    {
+        $startDate = $request->start_date ?? Carbon::now()->startOfMonth();
+        $endDate = $request->end_date ?? Carbon::now()->endOfMonth();
+
+        $report = Sale::whereBetween('date', [$startDate, $endDate])
+            ->selectRaw('date, COUNT(*) as total_orders, SUM(grand_total) as total_sales, SUM(paid_amount) as total_received, SUM(due_amount) as total_due')
+            ->groupBy('date')
+            ->orderBy('date', 'desc')
+            ->get();
+
+        return response()->json(['status' => true, 'data' => $report]);
+    }
+
+    // ==========================================
+    // HELPER METHODS
+    // ==========================================
+    private function getTopProducts($startDate, $endDate) {
+        return DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('products', 'products.id', '=', 'sale_items.product_id')
+            ->whereBetween('sales.date', [$startDate, $endDate])
+            ->select('products.name', 'products.image', 'products.stock_quantity', DB::raw('SUM(sale_items.quantity) as total_sold'))
+            ->groupBy('products.id', 'products.name', 'products.image', 'products.stock_quantity')
+            ->orderByDesc('total_sold')
+            ->limit(5)->get();
+    }
+
+    private function getLowStockList() {
+        return Product::whereColumn('stock_quantity', '<=', 'alert_quantity')
+            ->select('id', 'name', 'stock_quantity', 'alert_quantity', 'image', 'sku')
+            ->take(5)->get();
+    }
 
     private function generateChartData($startDate, $endDate, $range)
     {
@@ -172,39 +213,21 @@ class ReportController extends Controller
                 $revenues[] = $salesData[(int)$i] ?? 0;
                 $costs[] = $costData[(int)$i] ?? 0;
             }
-        } elseif ($range === 'all_time' || Carbon::parse($startDate)->diffInDays($endDate) > 90) {
-             $salesData = Sale::whereBetween('date', [$startDate, $endDate])
-                ->selectRaw("TO_CHAR(date, 'YYYY-MM') as month, SUM(grand_total) as total")
-                ->groupBy('month')->pluck('total', 'month');
-
-            $costData = DB::table('sale_items')
-                ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
-                ->join('products', 'products.id', '=', 'sale_items.product_id')
-                ->whereBetween('sales.date', [$startDate, $endDate])
-                ->selectRaw("TO_CHAR(sales.date, 'YYYY-MM') as month, SUM(sale_items.quantity * products.cost_price) as total_cost")
-                ->groupBy('month')->pluck('total_cost', 'month');
-
-            $period = CarbonPeriod::create($startDate, '1 month', $endDate);
-            foreach ($period as $date) {
-                $monthKey = $date->format('Y-m');
-                $categories[] = $date->format('M Y');
-                $revenues[] = $salesData[$monthKey] ?? 0;
-                $costs[] = $costData[$monthKey] ?? 0;
-            }
         } else {
-            $period = CarbonPeriod::create($startDate, $endDate);
-            $salesData = Sale::whereBetween('date', [$startDate, $endDate])
+             $period = CarbonPeriod::create($startDate, $endDate);
+
+             $salesData = Sale::whereBetween('date', [$startDate, $endDate])
                 ->selectRaw('CAST(date AS DATE) as day, SUM(grand_total) as total')
                 ->groupBy('day')->pluck('total', 'day');
 
-            $costData = DB::table('sale_items')
+             $costData = DB::table('sale_items')
                 ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
                 ->join('products', 'products.id', '=', 'sale_items.product_id')
                 ->whereBetween('sales.date', [$startDate, $endDate])
                 ->selectRaw('CAST(sales.date AS DATE) as day, SUM(sale_items.quantity * products.cost_price) as total_cost')
                 ->groupBy('day')->pluck('total_cost', 'day');
 
-            foreach ($period as $date) {
+             foreach ($period as $date) {
                 $formatDate = $date->format('Y-m-d');
                 $categories[] = $date->format('d M');
                 $revenues[] = $salesData[$formatDate] ?? 0;

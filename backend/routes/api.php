@@ -16,6 +16,8 @@ use App\Http\Controllers\SslCommerzController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\CouponController;
+use App\Http\Controllers\SalesReturnController;
+
 
 // --- Public Routes ---
 Route::post('/register', [AuthController::class, 'register']);
@@ -45,6 +47,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Coupon Management Routes
     Route::get('/coupons', [CouponController::class, 'index']);
     Route::post('/check-coupon', [CouponController::class, 'checkCoupon']);
+
+    // Sales Return Routes
+    Route::get('/sales-returns', [SalesReturnController::class, 'index']);
+    Route::post('/sales-returns', [SalesReturnController::class, 'store']);
 
     // --- Admin Only Routes ---
     Route::middleware('role:admin')->group(function () {

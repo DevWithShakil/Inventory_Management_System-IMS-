@@ -13,50 +13,58 @@ use Illuminate\Support\Facades\Log;
 
 class SaleController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index(Request $request)
     {
-        $query = Sale::with('customer')->latest();
+        try {
+            $query = Sale::with('customer')
+                ->withSum('sales_returns', 'refund_amount')
+                ->withCount('sales_returns')
+                ->latest();
 
-        if ($request->search) {
-            $search = $request->search;
-            $query->where(function($q) use ($search) {
-                $q->where('invoice_no', 'like', "%$search%")
-                  ->orWhereHas('customer', function($c) use ($search) {
-                      $c->where('name', 'like', "%$search%")
-                        ->orWhere('phone', 'like', "%$search%");
-                  });
-            });
+            // Search Filter
+            if ($request->search) {
+                $search = $request->search;
+                $query->where(function($q) use ($search) {
+                    $q->where('invoice_no', 'like', "%$search%")
+                      ->orWhereHas('customer', function($c) use ($search) {
+                          $c->where('name', 'like', "%$search%")
+                            ->orWhere('phone', 'like', "%$search%");
+                      });
+                });
+            }
+
+            // Date Filter
+            if ($request->start_date && $request->end_date) {
+                $query->whereBetween('date', [$request->start_date, $request->end_date]);
+            }
+
+            //  Status Filter Logic Updated
+            if ($request->status) {
+                if ($request->status === 'returned') {
+                    $query->whereHas('sales_returns');
+                } else {
+                    $query->where('payment_status', $request->status);
+                }
+            }
+
+            $sales = $query->paginate(10);
+
+            return response()->json([
+                'status' => true,
+                'data' => $sales
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Sale Index Error: ' . $e->getMessage());
+            return response()->json(['status' => false, 'message' => 'Failed to fetch sales'], 500);
         }
-
-        if ($request->start_date && $request->end_date) {
-            $query->whereBetween('date', [$request->start_date, $request->end_date]);
-        }
-
-        if ($request->status) {
-            $query->where('payment_status', $request->status);
-        }
-
-        $sales = $query->paginate(10);
-
-        return response()->json([
-            'status' => true,
-            'data' => $sales
-        ]);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
-   public function store(Request $request)
+    public function store(Request $request)
     {
-        // ১. ভ্যালিডেশন আপডেট (কুপন কোড যোগ করা হয়েছে)
         $request->validate([
             'customer_id'    => 'nullable|exists:customers,id',
             'redeem_amount'  => 'nullable|integer|min:0',
-            'coupon_code'    => 'nullable|string|exists:coupons,code', // ✅ কুপন ভ্যালিডেশন
+            'coupon_code'    => 'nullable|string|exists:coupons,code',
             'items'          => 'required|array|min:1',
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity'   => 'required|integer|min:1',
@@ -71,16 +79,10 @@ class SaleController extends Controller
             $subtotal = 0;
             $itemsToInsert = [];
 
-            // ২. সাবটোটাল এবং স্টক চেক
             foreach ($request->items as $item) {
                 $product = Product::find($item['product_id']);
-
-                if (!$product) {
-                    throw new \Exception("Product not found ID: " . $item['product_id']);
-                }
-
-                if ($product->stock_quantity < $item['quantity']) {
-                    throw new \Exception("Stock not available for: " . $product->name);
+                if (!$product || $product->stock_quantity < $item['quantity']) {
+                    throw new \Exception("Stock error for product ID: " . $item['product_id']);
                 }
 
                 $lineTotal = $item['quantity'] * $item['unit_price'];
@@ -95,8 +97,7 @@ class SaleController extends Controller
                 ];
             }
 
-            // ৩. রিওয়ার্ড পয়েন্ট লজিক
-            $pointsDiscount = 0;
+            $pointsUsed = 0;
             $customer = null;
 
             if ($request->customer_id) {
@@ -104,77 +105,43 @@ class SaleController extends Controller
                 $redeemAmount = $request->redeem_amount ?? 0;
 
                 if ($customer && $redeemAmount > 0) {
-                    // ব্যালেন্স চেক
                     if ($customer->reward_points < $redeemAmount) {
-                        throw new \Exception("Insufficient reward points! Available: " . $customer->reward_points);
+                         throw new \Exception("Insufficient points! You have: " . $customer->reward_points);
                     }
 
-                    // ২৫% লিমিট চেক
-                    $limitPercentage = 0.25;
-                    $maxRedeemable = floor($subtotal * $limitPercentage);
+                    $maxRedeemable = floor($subtotal * 0.25);
 
                     if ($redeemAmount > $maxRedeemable) {
-                        throw new \Exception("You can redeem max {$maxRedeemable} points for this order (25% of Total).");
+                        throw new \Exception("Max redeemable points: {$maxRedeemable}");
                     }
 
-                    $pointsDiscount = $redeemAmount;
+                    $pointsUsed = $redeemAmount;
                 }
             }
 
-            // ৪. কুপন লজিক (নতুন যোগ করা হয়েছে) 🔥
             $coupon = null;
             if ($request->coupon_code) {
-                $coupon = \App\Models\Coupon::where('code', $request->coupon_code)->first();
+                $coupon = Coupon::where('code', $request->coupon_code)->first();
 
-                // কুপন ভ্যালিডিটি চেক (নিরাপত্তার জন্য ডাবল চেক)
-                if (!$coupon) {
-                    throw new \Exception("Invalid coupon code.");
-                }
-
-                // মেয়াদ চেক
-                if ($coupon->expires_at && now()->gt($coupon->expires_at)) {
-                    throw new \Exception("Coupon has expired.");
-                }
-
-                // ব্যবহারের লিমিট চেক
-                if ($coupon->usage_limit > 0 && $coupon->used_count >= $coupon->usage_limit) {
-                    throw new \Exception("Coupon usage limit reached.");
-                }
-
-                // মিনিমাম পারচেজ চেক
-                if ($subtotal < $coupon->min_purchase) {
-                    throw new \Exception("Minimum purchase of {$coupon->min_purchase} required for this coupon.");
-                }
+                if (!$coupon) throw new \Exception("Invalid coupon code.");
+                if ($coupon->expires_at && now()->gt($coupon->expires_at)) throw new \Exception("Coupon has expired.");
+                if ($coupon->usage_limit > 0 && $coupon->used_count >= $coupon->usage_limit) throw new \Exception("Coupon usage limit reached.");
+                if ($subtotal < $coupon->min_purchase) throw new \Exception("Min purchase: {$coupon->min_purchase}");
             }
 
-            // ৫. টোটাল ডিসকাউন্ট ক্যালকুলেশন
-            // $request->discount = কুপন অ্যামাউন্ট (ফ্রন্টএন্ড থেকে আসছে)
             $couponDiscount = $request->discount ?? 0;
-            $totalDiscount = $couponDiscount + $pointsDiscount;
-
+            $totalDiscount = $couponDiscount + $pointsUsed;
             $tax = $request->tax ?? 0;
             $grandTotal = ($subtotal + $tax) - $totalDiscount;
 
             if ($grandTotal < 0) $grandTotal = 0;
 
             $dueAmount = $grandTotal - $request->paid_amount;
+            $paymentStatus = $dueAmount <= 0 ? 'paid' : ($request->paid_amount > 0 ? 'partial' : 'due');
 
-            // পেমেন্ট স্ট্যাটাস
-            if ($dueAmount <= 0) {
-                $paymentStatus = 'paid';
-                $dueAmount = 0;
-            } elseif ($request->paid_amount > 0) {
-                $paymentStatus = 'partial';
-            } else {
-                $paymentStatus = 'due';
-            }
-
-            $invoiceNo = 'INV-' . time() . rand(10,99);
-
-            // ৬. সেল তৈরি
             $sale = Sale::create([
                 'customer_id'    => $request->customer_id,
-                'invoice_no'     => $invoiceNo,
+                'invoice_no'     => 'INV-' . time() . rand(10,99),
                 'date'           => $request->date ?? now(),
                 'subtotal'       => $subtotal,
                 'discount'       => $totalDiscount,
@@ -185,10 +152,9 @@ class SaleController extends Controller
                 'payment_method' => $request->payment_method,
                 'payment_status' => $paymentStatus,
                 'created_by'     => auth()->id() ?? 1,
-                // 'coupon_code' => $request->coupon_code, // যদি sales টেবিলে coupon_code কলাম থাকে তবে কমেন্ট তুলে দিন
+                'redeemed_points' => $pointsUsed,
             ]);
 
-            // ৭. আইটেম ইনসার্ট এবং স্টক আপডেট
             foreach ($itemsToInsert as $itemData) {
                 SaleItem::create([
                     'sale_id'    => $sale->id,
@@ -197,73 +163,52 @@ class SaleController extends Controller
                     'unit_price' => $itemData['unit_price'],
                     'subtotal'   => $itemData['subtotal']
                 ]);
-
                 $itemData['product_obj']->decrement('stock_quantity', $itemData['quantity']);
             }
 
-            // ৮. কাস্টমার রিওয়ার্ড পয়েন্ট আপডেট
             if ($customer) {
-                // পয়েন্ট রিডিম করলে কেটে নেওয়া
-                if ($pointsDiscount > 0) {
-                    $customer->decrement('reward_points', $pointsDiscount);
+                if ($pointsUsed > 0) {
+                    $customer->decrement('reward_points', $pointsUsed);
                 }
 
-                // নতুন পয়েন্ট যোগ করা
-                $newPointsEarned = floor($grandTotal / 100);
-                if ($newPointsEarned > 0) {
-                    $customer->increment('reward_points', $newPointsEarned);
+                $newPoints = floor($grandTotal / 100);
+                if ($newPoints > 0) {
+                    $customer->increment('reward_points', $newPoints);
                 }
+
+                $customer->increment('total_spent', $grandTotal);
             }
 
-            // ৯. কুপন ব্যবহার আপডেট (Increment Used Count) 🔥
-            if ($coupon) {
-                $coupon->increment('used_count');
-            }
+            if ($coupon) $coupon->increment('used_count');
 
             DB::commit();
 
-            return response()->json([
-                'status'  => true,
-                'message' => 'Sale created successfully',
-                'data'    => $sale->load('customer', 'sale_items.product')
-            ], 201);
+            return response()->json(['status' => true, 'message' => 'Sale created!', 'data' => $sale], 201);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Sale Error: ' . $e->getMessage());
-            return response()->json([
-                'status'  => false,
-                'message' => $e->getMessage()
-            ], 400);
+            Log::error('Sale Store Error: ' . $e->getMessage());
+            return response()->json(['status' => false, 'message' => $e->getMessage()], 400);
         }
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show($id)
     {
         try {
-            $sale = Sale::with(['customer', 'sale_items.product'])
-                ->find($id);
+            $sale = Sale::with(['customer', 'sale_items.product'])->find($id);
 
             if (!$sale) {
                 return response()->json(['status' => false, 'message' => 'Invoice not found'], 404);
             }
 
-            return response()->json([
-                'status' => true,
-                'data' => $sale
-            ]);
+            return response()->json(['status' => true, 'data' => $sale]);
 
         } catch (\Exception $e) {
+            Log::error('Sale Show Error: ' . $e->getMessage());
             return response()->json(['status' => false, 'message' => $e->getMessage()], 500);
         }
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy($id)
     {
         try {
@@ -283,7 +228,6 @@ class SaleController extends Controller
             }
 
             $sale->sale_items()->delete();
-
             $sale->delete();
 
             DB::commit();
@@ -295,7 +239,7 @@ class SaleController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            Log::error('Sale Delete Error: ' . $e->getMessage());
+            Log::error('Sale Destroy Error: ' . $e->getMessage());
             return response()->json(['status' => false, 'message' => 'Failed to delete sale'], 500);
         }
     }
