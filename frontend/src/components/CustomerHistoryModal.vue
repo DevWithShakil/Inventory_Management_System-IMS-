@@ -7,7 +7,6 @@ import {
   EyeIcon,
 } from "@heroicons/vue/24/outline";
 
-// 🔥 আপনার দেওয়া ফাইনাল ইনভয়েস মোডাল ইম্পোর্ট
 import InvoiceModal from "./InvoiceModal.vue";
 
 const props = defineProps({
@@ -23,13 +22,11 @@ const emit = defineEmits(["close"]);
 const showInvoiceModal = ref(false);
 const selectedSale = ref(null);
 
-// ইনভয়েস ওপেন করার ফাংশন
 const openInvoice = (saleData) => {
   selectedSale.value = saleData;
   showInvoiceModal.value = true;
 };
 
-// তারিখ ফরম্যাট হেল্পার
 const formatDate = (dateString) => {
   if (!dateString) return "";
   return new Date(dateString).toLocaleDateString("en-US", {
