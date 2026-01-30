@@ -36,6 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Sales Operations
     Route::apiResource('sales', SaleController::class)->only(['store', 'index', 'show']);
     Route::apiResource('customers', CustomerController::class);
+    Route::get('/customers/{id}/history', [CustomerController::class, 'history']);
 
     // Product View & Search (Staff needs this for POS)
     Route::get('/products', [ProductController::class, 'index']);

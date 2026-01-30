@@ -248,27 +248,51 @@ const addNewCustomer = async () => {
     title: "Add New Customer",
     html:
       '<input id="swal-input1" class="swal2-input" placeholder="Name">' +
-      '<input id="swal-input2" class="swal2-input" placeholder="Phone Number">',
+      '<input id="swal-input2" class="swal2-input" placeholder="Phone Number">' +
+      '<input id="swal-input3" class="swal2-input" placeholder="Address (Optional)">',
     focusConfirm: false,
     showCancelButton: true,
-    preConfirm: () => [
-      document.getElementById("swal-input1").value,
-      document.getElementById("swal-input2").value,
-    ],
-  });
-  if (formValues) {
-    const [name, phone] = formValues;
-    if (!name || !phone) return;
+    confirmButtonText: "Save",
+    showLoaderOnConfirm: true,
+    preConfirm: async () => {
+      const name = document.getElementById("swal-input1").value;
+      const phone = document.getElementById("swal-input2").value;
+      const address = document.getElementById("swal-input3").value;
 
-    // In real app, call API to save customer here
-    // For now, push to local list for UI update
-    const newCus = { id: Date.now(), name, phone, reward_points: 0 };
-    customers.value.push(newCus);
-    selectCustomer(newCus);
+      if (!name || !phone) {
+        Swal.showValidationMessage("Name and Phone are required");
+        return false;
+      }
+
+      try {
+        const response = await axios.post("/customers", {
+          name: name,
+          phone: phone,
+          address: address,
+        });
+
+        if (response.data.status) {
+          return response.data.data;
+        } else {
+          throw new Error(response.data.message || "Failed");
+        }
+      } catch (error) {
+        const errorMessage = error.response?.data?.message || error.message;
+        Swal.showValidationMessage(`Request failed: ${errorMessage}`);
+      }
+    },
+    allowOutsideClick: () => !Swal.isLoading(),
+  });
+
+  if (formValues) {
+    const newCustomer = formValues;
+
+    customers.value.push(newCustomer);
+    selectCustomer(newCustomer);
 
     Swal.fire({
       icon: "success",
-      title: "Customer Added",
+      title: "Customer Added & Selected",
       toast: true,
       position: "top-end",
       timer: 2000,
@@ -494,8 +518,6 @@ const processSale = async (paymentDetails) => {
         subtotal: item.price * item.qty,
       })),
       sub_total: subTotal.value,
-
-      // 🔥 FIX: Send ONLY coupon discount here. Points discount is handled by backend via 'redeem_amount'.
       discount: couponDiscountAmount.value || 0,
 
       redeem_amount: pointsToRedeem.value,
@@ -555,8 +577,8 @@ const handleSuccess = (saleData) => {
   resetCartState();
   completedSaleData.value = saleData;
   showInvoiceModal.value = true;
-  fetchProducts(); // Update Stock
-  fetchCustomers(); // Update Points
+  fetchProducts();
+  fetchCustomers();
   Swal.fire({
     icon: "success",
     title: "Sale Completed!",

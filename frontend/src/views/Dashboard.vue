@@ -350,20 +350,6 @@ onMounted(() => fetchData());
           <PresentationChartLineIcon class="w-5 h-5 text-gray-400" /> Revenue vs
           Cost Trend
         </h3>
-        <div class="flex gap-3">
-          <div class="flex items-center gap-1.5">
-            <span class="w-3 h-3 rounded-full bg-emerald-500"></span>
-            <span class="text-xs font-bold text-gray-600 dark:text-gray-400"
-              >Revenue</span
-            >
-          </div>
-          <div class="flex items-center gap-1.5">
-            <span class="w-3 h-3 rounded-full bg-rose-500"></span>
-            <span class="text-xs font-bold text-gray-600 dark:text-gray-400"
-              >Cost</span
-            >
-          </div>
-        </div>
       </div>
       <div class="h-[350px] w-full">
         <VueApexCharts

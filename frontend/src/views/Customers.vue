@@ -3,7 +3,11 @@ import { ref, onMounted, computed, watch } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import axios from "../axios";
 import Swal from "sweetalert2";
+
+// Components
 import CustomerFormModal from "../components/CustomerFormModal.vue";
+import CustomerHistoryModal from "../components/CustomerHistoryModal.vue"; // 🔥 ১. নতুন মোডাল ইম্পোর্ট
+
 import {
   MagnifyingGlassIcon,
   UserPlusIcon,
@@ -23,10 +27,17 @@ const customers = ref([]);
 const isLoading = ref(false);
 const searchQuery = ref("");
 
-// Modal State
+// Add/Edit Modal State
 const showModal = ref(false);
 const selectedCustomer = ref(null);
 
+// 🔥 ২. History Modal State
+const showHistoryModal = ref(false);
+const historyLoading = ref(false);
+const customerHistory = ref([]);
+const historyCustomer = ref(null);
+
+// Watch for route actions (e.g., ?action=add)
 watch(
   () => route.query.action,
   (newAction) => {
@@ -38,20 +49,24 @@ watch(
 );
 
 // --- API Actions ---
+
+// ১. সকল কাস্টমার লোড করা
 const fetchCustomers = async () => {
   isLoading.value = true;
   try {
     const response = await axios.get("/customers");
     if (response.data.status) {
-      customers.value = response.data.data;
+      // Pagination থাকলে response.data.data.data হতে পারে, চেক করে নিবেন
+      customers.value = response.data.data.data || response.data.data;
     }
   } catch (error) {
-    console.error(error);
+    console.error("Error fetching customers:", error);
   } finally {
     isLoading.value = false;
   }
 };
 
+// ২. কাস্টমার ডিলিট করা
 const deleteCustomer = async (id) => {
   const result = await Swal.fire({
     title: "Are you sure?",
@@ -73,7 +88,7 @@ const deleteCustomer = async (id) => {
         showConfirmButton: false,
         timer: 1500,
       });
-      fetchCustomers();
+      fetchCustomers(); // লিস্ট রিফ্রেশ
     } catch (error) {
       let msg = "Failed to delete.";
       if (error.response && error.response.status === 400)
@@ -83,16 +98,38 @@ const deleteCustomer = async (id) => {
   }
 };
 
-// --- History Feature ---
-const viewHistory = (customer) => {
-  Swal.fire({
-    title: `History: ${customer.name}`,
-    text: `Total Points Earned: ${customer.reward_points || 0}`, // History তেও পয়েন্ট দেখালাম
-    icon: "info",
-  });
+// 🔥 ৩. কাস্টমার হিস্ট্রি দেখা (API Call)
+const viewHistory = async (customer) => {
+  historyCustomer.value = customer;
+  showHistoryModal.value = true;
+  historyLoading.value = true;
+  customerHistory.value = []; // আগের ডাটা ক্লিয়ার
+
+  try {
+    // API কল: /customers/{id}/history
+    const response = await axios.get(`/customers/${customer.id}/history`);
+
+    if (response.data.status) {
+      // ব্যাকএন্ডে sales রিলেশন লোড করা হয়েছে
+      customerHistory.value = response.data.data.sales;
+    }
+  } catch (error) {
+    console.error("History fetch error", error);
+    Swal.fire({
+      icon: "error",
+      title: "Oops...",
+      text: "Could not load customer history!",
+      toast: true,
+      position: "top-end",
+      timer: 2000,
+      showConfirmButton: false,
+    });
+  } finally {
+    historyLoading.value = false;
+  }
 };
 
-// --- Computed Filter ---
+// --- Computed Filter (Search Logic) ---
 const filteredCustomers = computed(() => {
   if (!searchQuery.value) return customers.value;
   const query = searchQuery.value.toLowerCase();
@@ -104,7 +141,7 @@ const filteredCustomers = computed(() => {
   );
 });
 
-// --- Handlers ---
+// --- Modal Handlers ---
 const openAddModal = () => {
   selectedCustomer.value = null;
   showModal.value = true;
@@ -126,6 +163,7 @@ const handleModalClose = (refresh) => {
   if (refresh) fetchCustomers();
 };
 
+// Initial Load
 onMounted(() => fetchCustomers());
 </script>
 
@@ -139,7 +177,7 @@ onMounted(() => fetchCustomers());
           Customer Management
         </h2>
         <p class="text-sm text-gray-500">
-          Manage customers, loyalty points and history.
+          Manage customers, loyalty points and purchase history.
         </p>
       </div>
       <button
@@ -201,7 +239,7 @@ onMounted(() => fetchCustomers());
 
             <tr v-else-if="filteredCustomers.length === 0">
               <td colspan="5" class="px-6 py-10 text-center text-gray-400">
-                No customers found.
+                No customers found matching your search.
               </td>
             </tr>
 
@@ -226,16 +264,17 @@ onMounted(() => fetchCustomers());
                   </div>
                 </div>
               </td>
+
               <td class="px-6 py-3">
                 <div
                   class="flex flex-col text-sm text-gray-600 dark:text-gray-300"
                 >
-                  <span class="flex items-center gap-1"
-                    ><PhoneIcon class="w-3 h-3" /> {{ customer.phone }}</span
-                  >
-                  <span v-if="customer.email" class="text-xs text-gray-400">{{
-                    customer.email
-                  }}</span>
+                  <span class="flex items-center gap-1">
+                    <PhoneIcon class="w-3 h-3" /> {{ customer.phone }}
+                  </span>
+                  <span v-if="customer.email" class="text-xs text-gray-400">
+                    {{ customer.email }}
+                  </span>
                 </div>
               </td>
 
@@ -253,26 +292,29 @@ onMounted(() => fetchCustomers());
               >
                 ৳ {{ Number(customer.total_spent || 0).toLocaleString() }}
               </td>
+
               <td class="px-6 py-3 text-center">
                 <div class="flex justify-center gap-2">
                   <button
                     @click="viewHistory(customer)"
                     class="p-1.5 text-indigo-600 bg-indigo-50 rounded hover:bg-indigo-100 transition"
-                    title="View History"
+                    title="View Lifetime History"
                   >
                     <EyeIcon class="w-4 h-4" />
                   </button>
+
                   <button
                     @click="openEditModal(customer)"
                     class="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition"
-                    title="Edit"
+                    title="Edit Customer"
                   >
                     <PencilSquareIcon class="w-4 h-4" />
                   </button>
+
                   <button
                     @click="deleteCustomer(customer.id)"
                     class="p-1.5 text-red-600 bg-red-50 rounded hover:bg-red-100 transition"
-                    title="Delete"
+                    title="Delete Customer"
                   >
                     <TrashIcon class="w-4 h-4" />
                   </button>
@@ -288,6 +330,14 @@ onMounted(() => fetchCustomers());
       :isOpen="showModal"
       :customer="selectedCustomer"
       @close="handleModalClose"
+    />
+
+    <CustomerHistoryModal
+      :isOpen="showHistoryModal"
+      :customer="historyCustomer"
+      :historyData="customerHistory"
+      :loading="historyLoading"
+      @close="showHistoryModal = false"
     />
   </div>
 </template>

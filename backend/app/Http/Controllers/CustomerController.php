@@ -98,4 +98,21 @@ class CustomerController extends Controller
             return response()->json(['status' => false, 'message' => 'Delete failed'], 500);
         }
     }
+
+public function history($id)
+{
+    $customer = Customer::with([
+        'sales' => function($q) {
+            $q->latest()
+              ->with(['sale_items.product', 'customer']);
+        },
+        'sales.sales_returns'
+    ])->find($id);
+
+    if (!$customer) {
+        return response()->json(['status' => false, 'message' => 'Customer not found'], 404);
+    }
+
+    return response()->json(['status' => true, 'data' => $customer]);
+}
 }
