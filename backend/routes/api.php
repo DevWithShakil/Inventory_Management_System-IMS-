@@ -17,7 +17,7 @@ use App\Http\Controllers\SettingController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\CouponController;
 use App\Http\Controllers\SalesReturnController;
-
+use App\Http\Controllers\ExpenseController;
 
 // --- Public Routes ---
 Route::post('/register', [AuthController::class, 'register']);
@@ -53,6 +53,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/sales-returns', [SalesReturnController::class, 'index']);
     Route::post('/sales-returns', [SalesReturnController::class, 'store']);
 
+    // Expense Management (Shared Access)
+    Route::get('/expenses', [ExpenseController::class, 'index']);
+    Route::post('/expenses', [ExpenseController::class, 'store']);
+    Route::put('/expenses/{id}', [ExpenseController::class, 'update']);
+    Route::get('/expense-categories', [ExpenseController::class, 'categories']);
+    Route::post('/expense-categories', [ExpenseController::class, 'storeCategory']);
+
     // --- Admin Only Routes ---
     Route::middleware('role:admin')->group(function () {
 
@@ -64,12 +71,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::apiResource('suppliers', SupplierController::class);
         Route::apiResource('purchases', PurchaseController::class);
 
+        // Expense Management (Admin Only Actions)
+        Route::put('/expense-categories/{id}', [ExpenseController::class, 'updateCategory']);
+        Route::delete('/expenses/{id}', [ExpenseController::class, 'destroy']);
+
         // Reports & Dashboard
         Route::get('/dashboard/overview', [ReportController::class, 'dashboardOverview']);
         Route::get('/reports/low-stock', [ReportController::class, 'lowStockReport']);
         Route::get('/reports/daily-sales', [ReportController::class, 'dailySalesReport']);
 
-        // Notifications (Low Stock Alert - Usually for Admin)
+        // Notifications
         Route::get('/notifications', [ReportController::class, 'lowStockReport']);
 
         // Dangerous Actions
@@ -85,7 +96,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // Import Products
         Route::post('/products/import', [ProductController::class, 'import']);
 
-        // coupon create & delete
+        // Coupon Admin Actions
         Route::post('/coupons', [CouponController::class, 'store']);
         Route::delete('/coupons/{id}', [CouponController::class, 'destroy']);
         Route::put('/coupons/{id}', [CouponController::class, 'update']);

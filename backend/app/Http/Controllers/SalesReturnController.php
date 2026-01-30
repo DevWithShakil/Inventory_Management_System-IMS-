@@ -46,8 +46,8 @@ class SalesReturnController extends Controller
                 $totalRefundAmount += $lineTotal;
 
                 $originalSaleItem = SaleItem::where('sale_id', $sale->id)
-                                    ->where('product_id', $item['product_id'])
-                                    ->first();
+                                            ->where('product_id', $item['product_id'])
+                                            ->first();
 
                 if ($originalSaleItem) {
                     $returnedOriginalValue += ($originalSaleItem->unit_price * $item['quantity']);
@@ -61,6 +61,7 @@ class SalesReturnController extends Controller
                     'return_condition' => $item['return_condition']
                 ];
             }
+            $finalRefundAmount = $totalRefundAmount - ($request->deduction_amount ?? 0);
 
             $salesReturn = SalesReturn::create([
                 'sale_id' => $sale->id,
@@ -69,7 +70,7 @@ class SalesReturnController extends Controller
                 'date' => $request->date,
                 'total_amount' => $totalRefundAmount,
                 'deduction_amount' => $request->deduction_amount ?? 0,
-                'refund_amount' => $totalRefundAmount - ($request->deduction_amount ?? 0),
+                'refund_amount' => $finalRefundAmount,
                 'note' => $request->note,
                 'created_by' => auth()->id() ?? 1
             ]);
@@ -84,7 +85,6 @@ class SalesReturnController extends Controller
                     'return_condition' => $itemData['return_condition']
                 ]);
 
-                // Stock Logic: Good -> Main Stock, Bad -> Damaged Stock
                 if ($itemData['return_condition'] === 'good') {
                     Product::where('id', $itemData['product_id'])
                         ->increment('stock_quantity', $itemData['quantity']);
@@ -98,31 +98,32 @@ class SalesReturnController extends Controller
                 $customer = Customer::find($sale->customer_id);
                 $noteUpdate = "";
 
-                // 1. Restore Redeemed Points
-                if (!empty($sale->redeemed_points) && $sale->redeemed_points > 0) {
-                    $originalSubtotal = $sale->subtotal;
+                if ($customer) {
+                    $customer->decrement('total_spent', $finalRefundAmount);
 
-                    if ($originalSubtotal > 0) {
-                        $returnRatio = $returnedOriginalValue / $originalSubtotal;
-                        $pointsToRestore = round($sale->redeemed_points * $returnRatio);
+                    if (!empty($sale->redeemed_points) && $sale->redeemed_points > 0) {
+                        $originalSubtotal = $sale->subtotal;
 
-                        if ($pointsToRestore > 0) {
-                            $customer->increment('reward_points', $pointsToRestore);
-                            $noteUpdate .= " (Restored {$pointsToRestore} used pts)";
+                        if ($originalSubtotal > 0) {
+                            $returnRatio = $returnedOriginalValue / $originalSubtotal;
+                            $pointsToRestore = round($sale->redeemed_points * $returnRatio);
+
+                            if ($pointsToRestore > 0) {
+                                $customer->increment('reward_points', $pointsToRestore);
+                                $noteUpdate .= " (Restored {$pointsToRestore} used pts)";
+                            }
                         }
                     }
-                }
+                    $pointsEarnedOriginally = floor($totalRefundAmount / 100);
 
-                // 2. Revert Earned Points
-                $pointsEarnedOriginally = floor($totalRefundAmount / 100);
-
-                if ($pointsEarnedOriginally > 0) {
-                    if ($customer->reward_points >= $pointsEarnedOriginally) {
-                        $customer->decrement('reward_points', $pointsEarnedOriginally);
-                        $noteUpdate .= " (Deducted {$pointsEarnedOriginally} earned pts)";
-                    } else {
-                        $customer->update(['reward_points' => 0]);
-                        $noteUpdate .= " (Reset points to 0)";
+                    if ($pointsEarnedOriginally > 0) {
+                        if ($customer->reward_points >= $pointsEarnedOriginally) {
+                            $customer->decrement('reward_points', $pointsEarnedOriginally);
+                            $noteUpdate .= " (Deducted {$pointsEarnedOriginally} earned pts)";
+                        } else {
+                            $customer->update(['reward_points' => 0]);
+                            $noteUpdate .= " (Reset points to 0)";
+                        }
                     }
                 }
 

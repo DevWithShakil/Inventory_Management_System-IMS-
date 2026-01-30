@@ -54,18 +54,22 @@ class ReportController extends Controller
 
             $fStart = $startDate->format('Y-m-d H:i:s');
             $fEnd = $endDate->format('Y-m-d H:i:s');
+
+            // --- Sales & Refunds ---
             $grossSales = Sale::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
-                              ->sum('grand_total');
+                             ->sum('grand_total');
 
             $totalRefunds = SalesReturn::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
                                        ->sum('refund_amount');
             $netSales = $grossSales - $totalRefunds;
 
+            // --- COGS Calculation ---
             $totalSoldCost = DB::table('sale_items')
                 ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
                 ->join('products', 'products.id', '=', 'sale_items.product_id')
                 ->whereBetween('sales.date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
                 ->sum(DB::raw('sale_items.quantity * products.cost_price'));
+
             $goodReturnCost = DB::table('sales_return_items')
                 ->join('sales_returns', 'sales_returns.id', '=', 'sales_return_items.sales_return_id')
                 ->join('products', 'products.id', '=', 'sales_return_items.product_id')
@@ -79,10 +83,20 @@ class ReportController extends Controller
                 ->whereBetween('sales_returns.date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
                 ->where('sales_return_items.return_condition', 'bad')
                 ->sum(DB::raw('sales_return_items.quantity * products.cost_price'));
+
             $actualCOGS = $totalSoldCost - $goodReturnCost;
-            $grossProfit = $netSales - $actualCOGS;
+
+            // --- 🔥 NEW: Expense Calculation ---
+            // এই ডেট রেঞ্জের মোট খরচ বের করা হচ্ছে
+            $totalExpenses = \App\Models\Expense::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
+                                ->sum('amount');
+
+            // --- 🔥 NEW: Profit Logic Update ---
+            // Gross Profit = (Sales - COGS) - Expenses
+            $grossProfit = ($netSales - $actualCOGS) - $totalExpenses;
 
 
+            // --- Other Metrics ---
             $purchases = Purchase::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])->sum('grand_total');
             $discounts = Sale::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])->sum('discount');
             $tax = Sale::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])->sum('tax');
@@ -96,6 +110,7 @@ class ReportController extends Controller
                                ->where('payment_method', '!=', 'cash')
                                ->sum('paid_amount');
 
+            // --- Overall Stats ---
             $allTimeSales = Sale::sum('grand_total');
             $allTimeReturns = SalesReturn::sum('refund_amount');
             $inventoryValue = Product::sum(DB::raw('stock_quantity * cost_price'));
@@ -113,7 +128,13 @@ class ReportController extends Controller
                         'range_gross_sales' => round($grossSales, 2),
                         'range_sales' => round($netSales, 2),
                         'range_returns' => round($totalRefunds, 2),
+
+                        // Updated Profit (After Expense deduction)
                         'range_profit' => round($grossProfit, 2),
+
+                        // New Field for Frontend
+                        'range_expenses' => round($totalExpenses, 2),
+
                         'range_cogs' => round($actualCOGS, 2),
                         'range_damaged_loss' => round($badReturnCost, 2),
                         'range_purchases' => round($purchases, 2),
