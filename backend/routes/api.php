@@ -65,6 +65,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Transaction / Payment Routes
     Route::get('/transactions', [TransactionController::class, 'index']);
     Route::post('/transactions', [TransactionController::class, 'store']);
+    Route::get('/transactions/{trx_id}', [TransactionController::class, 'show']);
 
     // --- Admin Only Routes ---
     Route::middleware('role:admin')->group(function () {
@@ -80,6 +81,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // Expense Management (Admin Only Actions)
         Route::put('/expense-categories/{id}', [ExpenseController::class, 'updateCategory']);
         Route::delete('/expenses/{id}', [ExpenseController::class, 'destroy']);
+
 
         // Reports & Dashboard
         Route::get('/dashboard/overview', [ReportController::class, 'dashboardOverview']);
@@ -109,6 +111,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Transaction / Payment
         Route::delete('/transactions/{id}', [TransactionController::class, 'destroy']);
+
     });
 
 });

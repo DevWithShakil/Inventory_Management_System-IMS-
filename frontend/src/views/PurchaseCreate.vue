@@ -9,6 +9,7 @@ import {
   TrashIcon,
   ArrowLeftIcon,
   ShoppingCartIcon,
+  BanknotesIcon,
 } from "@heroicons/vue/24/outline";
 
 const router = useRouter();
@@ -19,12 +20,21 @@ const products = ref([]);
 const isSubmitting = ref(false);
 const showProductModal = ref(false);
 
+const getLocalDate = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const form = reactive({
   supplier_id: "",
-  date: new Date().toISOString().slice(0, 10),
+  date: getLocalDate(),
   reference_no: "",
   tax: 0,
   discount: 0,
+  paid_amount: 0,
   note: "",
 });
 
@@ -130,34 +140,52 @@ const removeFromCart = (index) => {
   cart.value.splice(index, 1);
 };
 
-// --- Submit Logic ---
+// --- Calculations ---
 const subTotal = computed(() =>
   cart.value.reduce((sum, item) => sum + item.subtotal, 0),
 );
+
 const grandTotal = computed(() => {
   const tax = parseFloat(form.tax) || 0;
   const discount = parseFloat(form.discount) || 0;
   return subTotal.value + tax - discount;
 });
 
+// Due Calculation
+const dueAmount = computed(() => {
+  const paid = parseFloat(form.paid_amount) || 0;
+  return grandTotal.value - paid;
+});
+
+// --- Submit Logic ---
 const submitPurchase = async () => {
   if (!form.supplier_id)
     return Swal.fire("Error", "Select a Supplier", "error");
   if (cart.value.length === 0)
     return Swal.fire("Error", "Cart is empty", "error");
 
+  // Optional: Prevent paying more than total
+  if (form.paid_amount > grandTotal.value) {
+    return Swal.fire(
+      "Warning",
+      "Paid amount cannot exceed Grand Total",
+      "warning",
+    );
+  }
+
   isSubmitting.value = true;
   try {
     const response = await axios.post("/purchases", {
       ...form,
       items: cart.value,
+      due_amount: dueAmount.value, // Sending computed due explicitly
     });
     if (response.data.status) {
-      Swal.fire("Success!", "Purchase created.", "success");
+      Swal.fire("Success!", "Purchase created successfully.", "success");
       router.push("/purchases");
     }
   } catch (error) {
-    Swal.fire("Error", "Failed.", "error");
+    Swal.fire("Error", error.response?.data?.message || "Failed.", "error");
   } finally {
     isSubmitting.value = false;
   }
@@ -348,8 +376,8 @@ onMounted(() => loadData());
           <div class="flex flex-col md:flex-row gap-8">
             <div class="flex-1 space-y-4">
               <div>
-                <label class="label">Order Tax</label
-                ><input
+                <label class="label">Order Tax</label>
+                <input
                   v-model.number="form.tax"
                   type="number"
                   class="input-field"
@@ -357,13 +385,34 @@ onMounted(() => loadData());
                 />
               </div>
               <div>
-                <label class="label">Discount</label
-                ><input
+                <label class="label">Discount</label>
+                <input
                   v-model.number="form.discount"
                   type="number"
                   class="input-field"
                   placeholder="0.00"
                 />
+              </div>
+              <div>
+                <label class="label text-emerald-600">Paid Amount</label>
+                <div class="relative">
+                  <input
+                    v-model.number="form.paid_amount"
+                    type="number"
+                    class="input-field pl-4 border-emerald-200 focus:border-emerald-500 focus:ring-emerald-500"
+                    placeholder="Enter amount paid"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label class="label">Note</label>
+                <textarea
+                  v-model="form.note"
+                  class="input-field"
+                  rows="2"
+                  placeholder="Internal notes..."
+                ></textarea>
               </div>
             </div>
 
@@ -394,6 +443,26 @@ onMounted(() => loadData());
               >
                 <span>Grand Total</span>
                 <span>৳ {{ grandTotal.toLocaleString() }}</span>
+              </div>
+
+              <div class="flex justify-between text-lg font-bold pt-2">
+                <span class="text-gray-600">Paid</span>
+                <span class="text-emerald-600"
+                  >৳ {{ (form.paid_amount || 0).toLocaleString() }}</span
+                >
+              </div>
+
+              <div
+                class="flex justify-between text-lg font-bold border-t border-dashed pt-2"
+              >
+                <span :class="dueAmount > 0 ? 'text-rose-600' : 'text-gray-500'"
+                  >Due Amount</span
+                >
+                <span
+                  :class="dueAmount > 0 ? 'text-rose-600' : 'text-gray-500'"
+                >
+                  ৳ {{ dueAmount.toLocaleString() }}
+                </span>
               </div>
 
               <button

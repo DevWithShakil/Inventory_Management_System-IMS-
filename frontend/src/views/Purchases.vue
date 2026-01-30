@@ -9,12 +9,10 @@ import {
   TrashIcon,
   MagnifyingGlassIcon,
   XMarkIcon,
-  CalendarDaysIcon,
   BanknotesIcon,
-  FunnelIcon,
-  ArrowPathIcon,
-  ShoppingBagIcon,
   ClipboardDocumentCheckIcon,
+  ShoppingBagIcon,
+  ArrowPathIcon,
 } from "@heroicons/vue/24/outline";
 
 const router = useRouter();
@@ -34,7 +32,6 @@ const showModal = ref(false);
 const selectedPurchase = ref(null);
 
 // --- API Actions ---
-
 const fetchPurchases = async () => {
   isLoading.value = true;
   try {
@@ -87,30 +84,23 @@ const openDetailsModal = (purchase) => {
 };
 
 // --- Computed Logic ---
-
-// 1. Advanced Filtering
 const filteredPurchases = computed(() => {
   return purchases.value.filter((p) => {
-    // A. Search Query (Fix for Null values)
+    // A. Search Query
     const q = searchQuery.value.toLowerCase().trim();
     const ref = (p.reference_no || p.invoice_no || "").toLowerCase();
     const sup = (p.supplier?.name || "").toLowerCase();
     const matchesSearch = ref.includes(q) || sup.includes(q);
 
-    // B. Date Range Filter
+    // B. Date Range
     let matchesDate = true;
     if (startDate.value) matchesDate = matchesDate && p.date >= startDate.value;
     if (endDate.value) matchesDate = matchesDate && p.date <= endDate.value;
 
-    // C. Status Filter
-    let matchesStatus = true;
-    if (statusFilter.value) matchesStatus = p.status === statusFilter.value;
-
-    return matchesSearch && matchesDate && matchesStatus;
+    return matchesSearch && matchesDate;
   });
 });
 
-// 2. Summary Statistics (Based on Filtered Data)
 const stats = computed(() => {
   const data = filteredPurchases.value;
   const totalAmount = data.reduce(
@@ -119,7 +109,6 @@ const stats = computed(() => {
   );
   const totalCount = data.length;
 
-  // Today's Purchase
   const today = new Date().toISOString().slice(0, 10);
   const todayAmount = data
     .filter((p) => p.date === today)
@@ -127,6 +116,17 @@ const stats = computed(() => {
 
   return { totalAmount, totalCount, todayAmount };
 });
+
+// 🔥 Status Helper
+const getPaymentStatus = (purchase) => {
+  const due = Number(purchase.due_amount || 0);
+  const paid = Number(purchase.paid_amount || 0);
+
+  if (due <= 0) return { label: "Paid", class: "bg-green-100 text-green-700" };
+  if (paid > 0)
+    return { label: "Partial", class: "bg-yellow-100 text-yellow-800" };
+  return { label: "Due", class: "bg-red-100 text-red-700" };
+};
 
 onMounted(() => fetchPurchases());
 </script>
@@ -264,7 +264,7 @@ onMounted(() => fetchPurchases());
               <th class="px-6 py-4">Reference No</th>
               <th class="px-6 py-4">Supplier</th>
               <th class="px-6 py-4 text-right">Grand Total</th>
-              <th class="px-6 py-4 text-center">Status</th>
+              <th class="px-6 py-4 text-center">Payment Status</th>
               <th class="px-6 py-4 text-center">Actions</th>
             </tr>
           </thead>
@@ -315,13 +315,16 @@ onMounted(() => fetchPurchases());
               >
                 ৳ {{ Number(purchase.grand_total).toLocaleString() }}
               </td>
+
               <td class="px-6 py-3 text-center">
                 <span
-                  class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700 uppercase"
+                  class="px-2.5 py-0.5 rounded-full text-xs font-bold uppercase"
+                  :class="getPaymentStatus(purchase).class"
                 >
-                  {{ purchase.status }}
+                  {{ getPaymentStatus(purchase).label }}
                 </span>
               </td>
+
               <td class="px-6 py-3 text-center">
                 <div class="flex justify-center gap-2">
                   <button
@@ -351,7 +354,7 @@ onMounted(() => fetchPurchases());
       class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
     >
       <div
-        class="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl animate-fade-in-up border border-gray-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]"
+        class="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]"
       >
         <div
           class="flex justify-between items-center p-5 border-b border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/50"
@@ -398,11 +401,12 @@ onMounted(() => fetchPurchases());
               <p class="font-bold text-gray-800 dark:text-white">
                 {{ selectedPurchase.date }}
               </p>
-              <p
-                class="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full inline-block font-bold"
+              <span
+                class="text-xs px-2 py-0.5 rounded-full inline-block font-bold"
+                :class="getPaymentStatus(selectedPurchase).class"
               >
-                {{ selectedPurchase.status }}
-              </p>
+                {{ getPaymentStatus(selectedPurchase).label }}
+              </span>
             </div>
           </div>
 
@@ -457,6 +461,7 @@ onMounted(() => fetchPurchases());
                   {{ Number(selectedPurchase.discount).toLocaleString() }}</span
                 >
               </div>
+
               <div
                 class="flex justify-between text-lg font-bold text-indigo-600 border-t pt-2 dark:border-slate-700"
               >
@@ -467,6 +472,41 @@ onMounted(() => fetchPurchases());
                     Number(selectedPurchase.grand_total).toLocaleString()
                   }}</span
                 >
+              </div>
+
+              <div class="flex justify-between font-bold text-emerald-600">
+                <span>Paid Amount</span>
+                <span
+                  >৳
+                  {{
+                    Number(selectedPurchase.paid_amount || 0).toLocaleString()
+                  }}</span
+                >
+              </div>
+
+              <div
+                class="flex justify-between text-lg font-bold border-t border-dashed pt-2"
+              >
+                <span
+                  :class="
+                    Number(selectedPurchase.due_amount) > 0
+                      ? 'text-rose-600'
+                      : 'text-gray-500'
+                  "
+                  >Due Amount</span
+                >
+                <span
+                  :class="
+                    Number(selectedPurchase.due_amount) > 0
+                      ? 'text-rose-600'
+                      : 'text-gray-500'
+                  "
+                >
+                  ৳
+                  {{
+                    Number(selectedPurchase.due_amount || 0).toLocaleString()
+                  }}
+                </span>
               </div>
             </div>
           </div>

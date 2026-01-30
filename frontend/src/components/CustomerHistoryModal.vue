@@ -5,26 +5,42 @@ import {
   DocumentTextIcon,
   ArrowPathIcon,
   EyeIcon,
+  BanknotesIcon,
 } from "@heroicons/vue/24/outline";
 
 import InvoiceModal from "./InvoiceModal.vue";
+import TransactionReceiptModal from "./TransactionReceiptModal.vue";
 
 const props = defineProps({
   isOpen: Boolean,
   customer: Object,
-  historyData: Array,
+  historyData: {
+    type: Array,
+    default: () => [],
+  },
   loading: Boolean,
 });
 
 const emit = defineEmits(["close"]);
 
-// --- Invoice Modal State ---
+// --- Modal States ---
 const showInvoiceModal = ref(false);
-const selectedSale = ref(null);
+const showReceiptModal = ref(false);
+const selectedItem = ref(null);
+const selectedTrxId = ref(null);
 
-const openInvoice = (saleData) => {
-  selectedSale.value = saleData;
-  showInvoiceModal.value = true;
+// 🔥 Smart Open Logic
+const openDocument = (item) => {
+  // ১. যদি trx_id থাকে, মানে এটি পেমেন্ট -> Receipt Modal ওপেন করো
+  if (item.trx_id) {
+    selectedTrxId.value = item.trx_id;
+    showReceiptModal.value = true;
+  }
+  // ২. অন্যথায় এটি সেল -> Invoice Modal ওপেন করো
+  else {
+    selectedItem.value = item;
+    showInvoiceModal.value = true;
+  }
 };
 
 const formatDate = (dateString) => {
@@ -53,7 +69,7 @@ const formatDate = (dateString) => {
             class="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2"
           >
             <DocumentTextIcon class="w-6 h-6 text-indigo-600" />
-            Purchase History
+            Customer History
           </h3>
           <p class="text-sm text-gray-500 mt-1" v-if="customer">
             Customer:
@@ -78,70 +94,96 @@ const formatDate = (dateString) => {
           v-else-if="!historyData || historyData.length === 0"
           class="p-10 text-center text-gray-400"
         >
-          No purchase history found for this customer.
+          No history found for this customer.
         </div>
 
         <table v-else class="w-full text-left border-collapse">
           <thead class="bg-gray-50 dark:bg-slate-800 sticky top-0 z-10">
             <tr class="text-xs font-bold text-gray-500 uppercase">
               <th class="px-6 py-4">Date</th>
-              <th class="px-6 py-4">Invoice No</th>
+              <th class="px-6 py-4">Ref No</th>
+              <th class="px-6 py-4">Type</th>
               <th class="px-6 py-4 text-right">Amount</th>
-              <th class="px-6 py-4 text-center">Paid</th>
               <th class="px-6 py-4 text-center">Status</th>
-              <th class="px-6 py-4 text-center">Invoice</th>
+              <th class="px-6 py-4 text-center">View</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-slate-800 text-sm">
             <tr
-              v-for="sale in historyData"
-              :key="sale.id"
+              v-for="item in historyData"
+              :key="item.id || item.trx_id"
               class="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition"
             >
               <td class="px-6 py-4 text-gray-600 dark:text-gray-300">
-                {{ formatDate(sale.date) }}
+                {{ formatDate(item.date) }}
               </td>
 
-              <td class="px-6 py-4 font-bold text-indigo-600">
-                {{ sale.invoice_no }}
+              <td class="px-6 py-4 font-bold font-mono text-xs">
+                <span v-if="item.invoice_no" class="text-indigo-600">{{
+                  item.invoice_no
+                }}</span>
+                <span v-else-if="item.trx_id" class="text-emerald-600">{{
+                  item.trx_id
+                }}</span>
+              </td>
+
+              <td class="px-6 py-4">
+                <span
+                  v-if="item.invoice_no"
+                  class="flex items-center gap-1 text-xs font-bold text-gray-600"
+                >
+                  <DocumentTextIcon class="w-4 h-4" /> Sale
+                </span>
+                <span
+                  v-else
+                  class="flex items-center gap-1 text-xs font-bold text-emerald-600"
+                >
+                  <BanknotesIcon class="w-4 h-4" /> Payment
+                </span>
               </td>
 
               <td
                 class="px-6 py-4 text-right font-bold text-gray-800 dark:text-white"
               >
-                ৳ {{ Number(sale.grand_total).toLocaleString() }}
-              </td>
-
-              <td class="px-6 py-4 text-center text-emerald-600 font-medium">
-                ৳ {{ Number(sale.paid_amount).toLocaleString() }}
+                <span v-if="item.invoice_no"
+                  >৳ {{ Number(item.grand_total).toLocaleString() }}</span
+                >
+                <span v-else class="text-emerald-600"
+                  >৳ {{ Number(item.amount).toLocaleString() }}</span
+                >
               </td>
 
               <td class="px-6 py-4 text-center">
-                <span
-                  v-if="sale.sales_returns && sale.sales_returns.length > 0"
-                  class="px-2 py-1 bg-rose-100 text-rose-600 rounded text-xs font-bold"
-                >
-                  Returned
-                </span>
-                <span
-                  v-else-if="sale.due_amount > 0"
-                  class="px-2 py-1 bg-orange-100 text-orange-600 rounded text-xs font-bold"
-                >
-                  Due
-                </span>
-                <span
-                  v-else
-                  class="px-2 py-1 bg-emerald-100 text-emerald-600 rounded text-xs font-bold"
-                >
-                  Completed
-                </span>
+                <template v-if="item.invoice_no">
+                  <span
+                    v-if="item.sales_returns && item.sales_returns.length > 0"
+                    class="px-2 py-1 bg-rose-100 text-rose-600 rounded text-xs font-bold"
+                    >Returned</span
+                  >
+                  <span
+                    v-else-if="Number(item.due_amount) > 0"
+                    class="px-2 py-1 bg-orange-100 text-orange-600 rounded text-xs font-bold"
+                    >Due</span
+                  >
+                  <span
+                    v-else
+                    class="px-2 py-1 bg-emerald-100 text-emerald-600 rounded text-xs font-bold"
+                    >Paid</span
+                  >
+                </template>
+                <template v-else>
+                  <span
+                    class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold uppercase"
+                    >Success</span
+                  >
+                </template>
               </td>
 
               <td class="px-6 py-4 text-center">
                 <button
-                  @click="openInvoice(sale)"
+                  @click="openDocument(item)"
                   class="p-2 text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition group"
-                  title="View Invoice / Receipt"
+                  title="View Document"
                 >
                   <EyeIcon
                     class="w-5 h-5 group-hover:scale-110 transition-transform"
@@ -156,9 +198,9 @@ const formatDate = (dateString) => {
       <div
         class="p-4 border-t border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900 rounded-b-2xl flex justify-between items-center"
       >
-        <span class="text-xs text-gray-500">
-          Showing last {{ historyData ? historyData.length : 0 }} transactions
-        </span>
+        <span class="text-xs text-gray-500"
+          >Showing last {{ historyData ? historyData.length : 0 }} records</span
+        >
         <button
           @click="emit('close')"
           class="px-4 py-2 bg-gray-200 dark:bg-slate-800 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-bold hover:bg-gray-300 transition"
@@ -171,8 +213,14 @@ const formatDate = (dateString) => {
 
   <InvoiceModal
     :isOpen="showInvoiceModal"
-    :sale="selectedSale"
+    :sale="selectedItem"
     @close="showInvoiceModal = false"
+  />
+
+  <TransactionReceiptModal
+    :isOpen="showReceiptModal"
+    :trxId="selectedTrxId"
+    @close="showReceiptModal = false"
   />
 </template>
 

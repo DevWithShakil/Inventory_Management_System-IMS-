@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Customer;
+use App\Models\Sale;
+use App\Models\Transaction;
 use Illuminate\Support\Facades\Log;
 
 class CustomerController extends Controller
@@ -100,19 +102,23 @@ class CustomerController extends Controller
     }
 
 public function history($id)
-{
-    $customer = Customer::with([
-        'sales' => function($q) {
-            $q->latest()
-              ->with(['sale_items.product', 'customer']);
-        },
-        'sales.sales_returns'
-    ])->find($id);
+    {
+        $customer = Customer::find($id);
+        if (!$customer) {
+            return response()->json(['status' => false, 'message' => 'Customer not found'], 404);
+        }
 
-    if (!$customer) {
-        return response()->json(['status' => false, 'message' => 'Customer not found'], 404);
+        $sales = Sale::with(['sale_items.product', 'sales_returns'])
+            ->where('customer_id', $id)
+            ->get();
+        $transactions = Transaction::where('customer_id', $id)
+            ->where('type', 'credit')
+            ->get();
+        $history = $sales->concat($transactions)->sortByDesc('date')->values();
+
+        return response()->json([
+            'status' => true,
+            'data' => $history
+        ]);
     }
-
-    return response()->json(['status' => true, 'data' => $customer]);
-}
 }

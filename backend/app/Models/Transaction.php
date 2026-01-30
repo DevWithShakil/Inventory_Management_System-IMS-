@@ -10,9 +10,24 @@ class Transaction extends Model
     use HasFactory;
 
     protected $fillable = [
-        'trx_id', 'type', 'customer_id', 'supplier_id',
-        'sale_id', 'purchase_id', 'amount', 'date',
-        'payment_method', 'note', 'created_by'
+        'trx_id',
+        'type',
+        'customer_id',
+        'supplier_id',
+        'sale_id',
+        'purchase_id',
+        'amount',
+        'date',
+        'payment_method',
+        'note',
+        'meta_data',
+        'created_by'
+    ];
+
+
+    protected $casts = [
+        'meta_data' => 'array',
+        'date' => 'date',
     ];
 
     public function customer()

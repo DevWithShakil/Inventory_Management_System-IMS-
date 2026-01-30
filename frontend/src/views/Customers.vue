@@ -7,6 +7,7 @@ import Swal from "sweetalert2";
 // Components
 import CustomerFormModal from "../components/CustomerFormModal.vue";
 import CustomerHistoryModal from "../components/CustomerHistoryModal.vue";
+import TransactionReceiptModal from "../components/TransactionReceiptModal.vue";
 
 import {
   MagnifyingGlassIcon,
@@ -17,8 +18,8 @@ import {
   PhoneIcon,
   GiftIcon,
   EyeIcon,
-  BanknotesIcon, // 🔥 Pay Icon
-  XMarkIcon, // For Modal Close
+  BanknotesIcon,
+  XMarkIcon,
 } from "@heroicons/vue/24/outline";
 
 const route = useRoute();
@@ -29,7 +30,7 @@ const customers = ref([]);
 const isLoading = ref(false);
 const searchQuery = ref("");
 
-// Add/Edit Modal State
+// Modals State
 const showModal = ref(false);
 const selectedCustomer = ref(null);
 
@@ -39,7 +40,20 @@ const historyLoading = ref(false);
 const customerHistory = ref([]);
 const historyCustomer = ref(null);
 
-// 🔥 Payment Modal State
+// Receipt Modal State
+const showReceiptModal = ref(false);
+const selectedTrxId = ref(null);
+
+// 🔥 ১. Local Date পাওয়ার ফাংশন (Timezone Fix)
+const getLocalDate = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+// Payment Modal State
 const showPayModal = ref(false);
 const submittingPay = ref(false);
 const payForm = ref({
@@ -47,18 +61,15 @@ const payForm = ref({
   customer_name: "",
   current_due: 0,
   amount: "",
-  date: new Date().toISOString().substr(0, 10),
+  date: getLocalDate(), // 🔥 ফিক্স: এখন লোকাল ডেট আসবে
   payment_method: "cash",
   note: "",
 });
 
-// Watch for route actions
 watch(
   () => route.query.action,
   (newAction) => {
-    if (newAction === "add") {
-      openAddModal();
-    }
+    if (newAction === "add") openAddModal();
   },
   { immediate: true },
 );
@@ -97,17 +108,12 @@ const deleteCustomer = async (id) => {
       Swal.fire({
         icon: "success",
         title: "Deleted!",
-        toast: true,
-        position: "top-end",
-        showConfirmButton: false,
         timer: 1500,
+        showConfirmButton: false,
       });
       fetchCustomers();
     } catch (error) {
-      let msg = "Failed to delete.";
-      if (error.response && error.response.status === 400)
-        msg = error.response.data.message;
-      Swal.fire("Error", msg, "error");
+      Swal.fire("Error", "Failed to delete.", "error");
     }
   }
 };
@@ -121,45 +127,62 @@ const viewHistory = async (customer) => {
 
   try {
     const response = await axios.get(`/customers/${customer.id}/history`);
+
     if (response.data.status) {
-      customerHistory.value = response.data.data.sales;
+      const result = response.data.data;
+
+      if (Array.isArray(result)) {
+        customerHistory.value = result;
+      } else if (result && result.data && Array.isArray(result.data)) {
+        customerHistory.value = result.data;
+      } else {
+        customerHistory.value = [];
+        console.warn("Unexpected history data format", result);
+      }
     }
   } catch (error) {
     console.error("History fetch error", error);
     Swal.fire({
       icon: "error",
-      title: "Oops...",
-      text: "Could not load customer history!",
+      title: "Error",
+      text: "Failed to load history",
       toast: true,
       position: "top-end",
-      timer: 2000,
       showConfirmButton: false,
+      timer: 3000,
     });
   } finally {
     historyLoading.value = false;
   }
 };
 
-// 🔥 4. Payment Functions
+// 4. Payment Functions
 
-// Open Payment Modal
 const openPayModal = (customer) => {
   payForm.value = {
     customer_id: customer.id,
     customer_name: customer.name,
     current_due: customer.balance,
     amount: "",
-    date: new Date().toISOString().substr(0, 10),
+    date: getLocalDate(), // 🔥 ফিক্স: ওপেন করার সময়ও সঠিক তারিখ সেট হবে
     payment_method: "cash",
     note: "",
   };
   showPayModal.value = true;
 };
 
-// Submit Payment
 const submitPayment = async () => {
   if (!payForm.value.amount || payForm.value.amount <= 0) {
     Swal.fire("Error", "Please enter a valid amount", "error");
+    return;
+  }
+
+  if (Number(payForm.value.amount) > Number(payForm.value.current_due)) {
+    Swal.fire(
+      "Warning",
+      `Amount cannot exceed due (৳ ${payForm.value.current_due})`,
+      "warning",
+    );
     return;
   }
 
@@ -175,28 +198,43 @@ const submitPayment = async () => {
     });
 
     if (response.data.status) {
+      if (response.data.gateway_url) {
+        window.location.href = response.data.gateway_url;
+        return;
+      }
+
+      showPayModal.value = false;
+      await fetchCustomers();
+
       Swal.fire({
         icon: "success",
         title: "Payment Collected!",
-        text: `New Balance Updated.`,
-        timer: 2000,
-        showConfirmButton: false,
+        text: "Transaction recorded successfully.",
+        showCancelButton: true,
+        confirmButtonText: "Print Receipt",
+        cancelButtonText: "Close",
+        confirmButtonColor: "#4f46e5",
+      }).then((result) => {
+        if (result.isConfirmed) {
+          if (response.data.data && response.data.data.trx_id) {
+            selectedTrxId.value = response.data.data.trx_id;
+            showReceiptModal.value = true;
+          }
+        }
       });
-      showPayModal.value = false;
-      fetchCustomers(); // Refresh to show new balance
     }
   } catch (error) {
-    Swal.fire(
-      "Error",
-      error.response?.data?.message || "Failed to collect payment",
-      "error",
-    );
+    let msg = "Failed to collect payment";
+    if (error.response && error.response.data && error.response.data.message) {
+      msg = error.response.data.message;
+    }
+    Swal.fire("Error", msg, "error");
   } finally {
     submittingPay.value = false;
   }
 };
 
-// --- Computed Filter ---
+// --- Helpers ---
 const filteredCustomers = computed(() => {
   if (!searchQuery.value) return customers.value;
   const query = searchQuery.value.toLowerCase();
@@ -208,29 +246,21 @@ const filteredCustomers = computed(() => {
   );
 });
 
-// --- Modal Handlers ---
 const openAddModal = () => {
   selectedCustomer.value = null;
   showModal.value = true;
 };
-
-const openEditModal = (customer) => {
-  selectedCustomer.value = { ...customer };
+const openEditModal = (c) => {
+  selectedCustomer.value = { ...c };
   showModal.value = true;
 };
-
 const handleModalClose = (refresh) => {
   showModal.value = false;
   selectedCustomer.value = null;
-
-  if (route.query.action) {
-    router.replace({ query: null });
-  }
-
+  if (route.query.action) router.replace({ query: null });
   if (refresh) fetchCustomers();
 };
 
-// Initial Load
 onMounted(() => fetchCustomers());
 </script>
 
@@ -296,21 +326,14 @@ onMounted(() => fetchCustomers());
           <tbody class="divide-y divide-gray-100 dark:divide-slate-800">
             <tr v-if="isLoading">
               <td colspan="6" class="px-6 py-10 text-center text-gray-500">
-                <div class="flex justify-center items-center gap-2">
-                  <div
-                    class="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600"
-                  ></div>
-                  Loading...
-                </div>
+                Loading...
               </td>
             </tr>
-
             <tr v-else-if="filteredCustomers.length === 0">
               <td colspan="6" class="px-6 py-10 text-center text-gray-400">
-                No customers found matching your search.
+                No customers found.
               </td>
             </tr>
-
             <tr
               v-else
               v-for="customer in filteredCustomers"
@@ -332,77 +355,68 @@ onMounted(() => fetchCustomers());
                   </div>
                 </div>
               </td>
-
               <td class="px-6 py-3">
                 <div
                   class="flex flex-col text-sm text-gray-600 dark:text-gray-300"
                 >
-                  <span class="flex items-center gap-1">
-                    <PhoneIcon class="w-3 h-3" /> {{ customer.phone }}
-                  </span>
-                  <span v-if="customer.email" class="text-xs text-gray-400">
-                    {{ customer.email }}
-                  </span>
+                  <span class="flex items-center gap-1"
+                    ><PhoneIcon class="w-3 h-3" /> {{ customer.phone }}</span
+                  >
+                  <span v-if="customer.email" class="text-xs text-gray-400">{{
+                    customer.email
+                  }}</span>
                 </div>
               </td>
-
               <td class="px-6 py-3 text-center">
                 <span
                   class="px-3 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold flex items-center justify-center gap-1 w-max mx-auto"
                 >
-                  <GiftIcon class="w-3 h-3" />
-                  {{ customer.reward_points || 0 }}
+                  <GiftIcon class="w-3 h-3" /> {{ customer.reward_points || 0 }}
                 </span>
               </td>
-
               <td
                 class="px-6 py-3 text-right font-bold text-gray-800 dark:text-white"
               >
                 ৳ {{ Number(customer.total_spent || 0).toLocaleString() }}
               </td>
-
               <td class="px-6 py-3 text-right font-bold">
                 <span
                   :class="
-                    customer.balance > 0 ? 'text-rose-600' : 'text-emerald-600'
+                    Number(customer.balance) > 0
+                      ? 'text-rose-600'
+                      : 'text-emerald-600'
                   "
                 >
-                  {{ customer.balance > 0 ? "Due: " : "" }}
+                  {{ Number(customer.balance) > 0 ? "Due: " : "" }}
                   ৳ {{ Number(customer.balance).toLocaleString() }}
                 </span>
               </td>
-
               <td class="px-6 py-3 text-center">
                 <div class="flex justify-center gap-2">
                   <button
-                    v-if="customer.balance > 0"
+                    v-if="Number(customer.balance) > 0"
                     @click="openPayModal(customer)"
                     class="flex items-center gap-1 px-2 py-1.5 bg-emerald-600 text-white rounded text-xs font-bold hover:bg-emerald-700 transition shadow"
-                    title="Collect Due Payment"
+                    title="Collect Due"
                   >
                     <BanknotesIcon class="w-3.5 h-3.5" /> Pay
                   </button>
-
                   <button
                     @click="viewHistory(customer)"
                     class="p-1.5 text-indigo-600 bg-indigo-50 rounded hover:bg-indigo-100 transition"
-                    title="View Lifetime History"
+                    title="History"
                   >
                     <EyeIcon class="w-4 h-4" />
                   </button>
-
                   <button
                     @click="openEditModal(customer)"
                     class="p-1.5 text-blue-600 bg-blue-50 rounded hover:bg-blue-100 transition"
-                    title="Edit Customer"
                   >
                     <PencilSquareIcon class="w-4 h-4" />
                   </button>
-
                   <button
                     @click="deleteCustomer(customer.id)"
                     class="p-1.5 text-red-600 bg-red-50 rounded hover:bg-red-100 transition"
-                    title="Delete Customer"
                   >
                     <TrashIcon class="w-4 h-4" />
                   </button>
@@ -426,6 +440,12 @@ onMounted(() => fetchCustomers());
       :historyData="customerHistory"
       :loading="historyLoading"
       @close="showHistoryModal = false"
+    />
+
+    <TransactionReceiptModal
+      :isOpen="showReceiptModal"
+      :trxId="selectedTrxId"
+      @close="showReceiptModal = false"
     />
 
     <div
@@ -489,9 +509,9 @@ onMounted(() => fetchCustomers());
                 class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
               >
                 <option value="cash">Cash</option>
-                <option value="bkash">Bkash</option>
+                <option value="bkash">Bkash (Online)</option>
+                <option value="card">Card (SSLCommerz)</option>
                 <option value="nagad">Nagad</option>
-                <option value="bank">Bank Transfer</option>
               </select>
             </div>
           </div>
@@ -544,7 +564,11 @@ onMounted(() => fetchCustomers());
               v-if="submittingPay"
               class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"
             ></span>
-            Confirm Payment
+            {{
+              payForm.payment_method === "cash"
+                ? "Confirm Payment"
+                : "Pay Now (Online)"
+            }}
           </button>
         </div>
       </div>

@@ -111,7 +111,7 @@ const routes = [
                 path: '/expense-categories',
                 name: 'expense-categories',
                 component: ExpenseCategories,
-            }
+            },
 
         ]
     },
