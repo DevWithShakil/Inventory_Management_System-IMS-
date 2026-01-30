@@ -170,6 +170,13 @@ class SaleController extends Controller
                 'redeemed_points' => $pointsUsed,
             ]);
 
+if ($request->due_amount > 0) {
+    $customer = Customer::find($request->customer_id);
+    if ($customer) {
+        $customer->increment('balance', $request->due_amount);
+    }
+}
+
             foreach ($itemsToInsert as $itemData) {
                 SaleItem::create([
                     'sale_id'    => $sale->id,

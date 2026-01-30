@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Sale;
+use App\Models\Transaction;
 
 class Customer extends Model
 {
@@ -14,8 +16,8 @@ class Customer extends Model
         'phone',
         'email',
         'address',
-        'points', // নোট: আপনার SaleController এ 'reward_points' ব্যবহার করা হয়েছে, কলামের নাম মিলিয়ে নিবেন।
-        'reward_points', // যদি ডাটাবেসে reward_points নাম থাকে তবে এটি অ্যাড করুন
+        'points',
+        'reward_points',
         'total_spent'
     ];
 
@@ -25,5 +27,10 @@ class Customer extends Model
     public function sales()
     {
         return $this->hasMany(Sale::class);
+    }
+
+    public function transactions()
+    {
+        return $this->hasMany(Transaction::class)->latest();
     }
 }

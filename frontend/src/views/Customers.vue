@@ -6,7 +6,7 @@ import Swal from "sweetalert2";
 
 // Components
 import CustomerFormModal from "../components/CustomerFormModal.vue";
-import CustomerHistoryModal from "../components/CustomerHistoryModal.vue"; // 🔥 ১. নতুন মোডাল ইম্পোর্ট
+import CustomerHistoryModal from "../components/CustomerHistoryModal.vue";
 
 import {
   MagnifyingGlassIcon,
@@ -17,6 +17,8 @@ import {
   PhoneIcon,
   GiftIcon,
   EyeIcon,
+  BanknotesIcon, // 🔥 Pay Icon
+  XMarkIcon, // For Modal Close
 } from "@heroicons/vue/24/outline";
 
 const route = useRoute();
@@ -31,13 +33,26 @@ const searchQuery = ref("");
 const showModal = ref(false);
 const selectedCustomer = ref(null);
 
-// 🔥 ২. History Modal State
+// History Modal State
 const showHistoryModal = ref(false);
 const historyLoading = ref(false);
 const customerHistory = ref([]);
 const historyCustomer = ref(null);
 
-// Watch for route actions (e.g., ?action=add)
+// 🔥 Payment Modal State
+const showPayModal = ref(false);
+const submittingPay = ref(false);
+const payForm = ref({
+  customer_id: null,
+  customer_name: "",
+  current_due: 0,
+  amount: "",
+  date: new Date().toISOString().substr(0, 10),
+  payment_method: "cash",
+  note: "",
+});
+
+// Watch for route actions
 watch(
   () => route.query.action,
   (newAction) => {
@@ -50,13 +65,12 @@ watch(
 
 // --- API Actions ---
 
-// ১. সকল কাস্টমার লোড করা
+// 1. Fetch Customers
 const fetchCustomers = async () => {
   isLoading.value = true;
   try {
     const response = await axios.get("/customers");
     if (response.data.status) {
-      // Pagination থাকলে response.data.data.data হতে পারে, চেক করে নিবেন
       customers.value = response.data.data.data || response.data.data;
     }
   } catch (error) {
@@ -66,7 +80,7 @@ const fetchCustomers = async () => {
   }
 };
 
-// ২. কাস্টমার ডিলিট করা
+// 2. Delete Customer
 const deleteCustomer = async (id) => {
   const result = await Swal.fire({
     title: "Are you sure?",
@@ -88,7 +102,7 @@ const deleteCustomer = async (id) => {
         showConfirmButton: false,
         timer: 1500,
       });
-      fetchCustomers(); // লিস্ট রিফ্রেশ
+      fetchCustomers();
     } catch (error) {
       let msg = "Failed to delete.";
       if (error.response && error.response.status === 400)
@@ -98,19 +112,16 @@ const deleteCustomer = async (id) => {
   }
 };
 
-// 🔥 ৩. কাস্টমার হিস্ট্রি দেখা (API Call)
+// 3. View History
 const viewHistory = async (customer) => {
   historyCustomer.value = customer;
   showHistoryModal.value = true;
   historyLoading.value = true;
-  customerHistory.value = []; // আগের ডাটা ক্লিয়ার
+  customerHistory.value = [];
 
   try {
-    // API কল: /customers/{id}/history
     const response = await axios.get(`/customers/${customer.id}/history`);
-
     if (response.data.status) {
-      // ব্যাকএন্ডে sales রিলেশন লোড করা হয়েছে
       customerHistory.value = response.data.data.sales;
     }
   } catch (error) {
@@ -129,7 +140,63 @@ const viewHistory = async (customer) => {
   }
 };
 
-// --- Computed Filter (Search Logic) ---
+// 🔥 4. Payment Functions
+
+// Open Payment Modal
+const openPayModal = (customer) => {
+  payForm.value = {
+    customer_id: customer.id,
+    customer_name: customer.name,
+    current_due: customer.balance,
+    amount: "",
+    date: new Date().toISOString().substr(0, 10),
+    payment_method: "cash",
+    note: "",
+  };
+  showPayModal.value = true;
+};
+
+// Submit Payment
+const submitPayment = async () => {
+  if (!payForm.value.amount || payForm.value.amount <= 0) {
+    Swal.fire("Error", "Please enter a valid amount", "error");
+    return;
+  }
+
+  submittingPay.value = true;
+  try {
+    const response = await axios.post("/transactions", {
+      type: "customer_pay",
+      customer_id: payForm.value.customer_id,
+      amount: payForm.value.amount,
+      date: payForm.value.date,
+      payment_method: payForm.value.payment_method,
+      note: payForm.value.note,
+    });
+
+    if (response.data.status) {
+      Swal.fire({
+        icon: "success",
+        title: "Payment Collected!",
+        text: `New Balance Updated.`,
+        timer: 2000,
+        showConfirmButton: false,
+      });
+      showPayModal.value = false;
+      fetchCustomers(); // Refresh to show new balance
+    }
+  } catch (error) {
+    Swal.fire(
+      "Error",
+      error.response?.data?.message || "Failed to collect payment",
+      "error",
+    );
+  } finally {
+    submittingPay.value = false;
+  }
+};
+
+// --- Computed Filter ---
 const filteredCustomers = computed(() => {
   if (!searchQuery.value) return customers.value;
   const query = searchQuery.value.toLowerCase();
@@ -177,7 +244,7 @@ onMounted(() => fetchCustomers());
           Customer Management
         </h2>
         <p class="text-sm text-gray-500">
-          Manage customers, loyalty points and purchase history.
+          Manage customers, loyalty points, dues and purchase history.
         </p>
       </div>
       <button
@@ -220,14 +287,15 @@ onMounted(() => fetchCustomers());
             >
               <th class="px-6 py-4">Customer Info</th>
               <th class="px-6 py-4">Contact</th>
-              <th class="px-6 py-4 text-center">Loyalty Points</th>
+              <th class="px-6 py-4 text-center">Points</th>
               <th class="px-6 py-4 text-right">Total Spent</th>
+              <th class="px-6 py-4 text-right">Balance / Due</th>
               <th class="px-6 py-4 text-center">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-slate-800">
             <tr v-if="isLoading">
-              <td colspan="5" class="px-6 py-10 text-center text-gray-500">
+              <td colspan="6" class="px-6 py-10 text-center text-gray-500">
                 <div class="flex justify-center items-center gap-2">
                   <div
                     class="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600"
@@ -238,7 +306,7 @@ onMounted(() => fetchCustomers());
             </tr>
 
             <tr v-else-if="filteredCustomers.length === 0">
-              <td colspan="5" class="px-6 py-10 text-center text-gray-400">
+              <td colspan="6" class="px-6 py-10 text-center text-gray-400">
                 No customers found matching your search.
               </td>
             </tr>
@@ -283,7 +351,7 @@ onMounted(() => fetchCustomers());
                   class="px-3 py-1 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold flex items-center justify-center gap-1 w-max mx-auto"
                 >
                   <GiftIcon class="w-3 h-3" />
-                  {{ customer.reward_points || 0 }} pts
+                  {{ customer.reward_points || 0 }}
                 </span>
               </td>
 
@@ -293,8 +361,28 @@ onMounted(() => fetchCustomers());
                 ৳ {{ Number(customer.total_spent || 0).toLocaleString() }}
               </td>
 
+              <td class="px-6 py-3 text-right font-bold">
+                <span
+                  :class="
+                    customer.balance > 0 ? 'text-rose-600' : 'text-emerald-600'
+                  "
+                >
+                  {{ customer.balance > 0 ? "Due: " : "" }}
+                  ৳ {{ Number(customer.balance).toLocaleString() }}
+                </span>
+              </td>
+
               <td class="px-6 py-3 text-center">
                 <div class="flex justify-center gap-2">
+                  <button
+                    v-if="customer.balance > 0"
+                    @click="openPayModal(customer)"
+                    class="flex items-center gap-1 px-2 py-1.5 bg-emerald-600 text-white rounded text-xs font-bold hover:bg-emerald-700 transition shadow"
+                    title="Collect Due Payment"
+                  >
+                    <BanknotesIcon class="w-3.5 h-3.5" /> Pay
+                  </button>
+
                   <button
                     @click="viewHistory(customer)"
                     class="p-1.5 text-indigo-600 bg-indigo-50 rounded hover:bg-indigo-100 transition"
@@ -339,5 +427,127 @@ onMounted(() => fetchCustomers());
       :loading="historyLoading"
       @close="showHistoryModal = false"
     />
+
+    <div
+      v-if="showPayModal"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+    >
+      <div
+        class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-xl overflow-hidden"
+      >
+        <div
+          class="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center bg-emerald-50 dark:bg-emerald-900/20"
+        >
+          <div>
+            <h3 class="text-lg font-bold text-gray-800 dark:text-white">
+              Collect Due Payment
+            </h3>
+            <p class="text-xs text-gray-500">
+              Customer:
+              <span class="font-bold text-emerald-600">{{
+                payForm.customer_name
+              }}</span>
+            </p>
+          </div>
+          <button
+            @click="showPayModal = false"
+            class="text-gray-400 hover:text-red-500"
+          >
+            <XMarkIcon class="w-6 h-6" />
+          </button>
+        </div>
+
+        <div class="p-6 space-y-4">
+          <div
+            class="flex justify-between items-center p-3 bg-rose-50 rounded-lg border border-rose-100"
+          >
+            <span class="text-sm font-medium text-rose-600"
+              >Current Due Amount:</span
+            >
+            <span class="text-lg font-bold text-rose-700"
+              >৳ {{ Number(payForm.current_due).toLocaleString() }}</span
+            >
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-bold text-gray-500 mb-1"
+                >Date</label
+              >
+              <input
+                v-model="payForm.date"
+                type="date"
+                class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+              />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-gray-500 mb-1"
+                >Method</label
+              >
+              <select
+                v-model="payForm.payment_method"
+                class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+              >
+                <option value="cash">Cash</option>
+                <option value="bkash">Bkash</option>
+                <option value="nagad">Nagad</option>
+                <option value="bank">Bank Transfer</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-gray-500 mb-1"
+              >Amount to Pay <span class="text-red-500">*</span></label
+            >
+            <div class="relative">
+              <span class="absolute left-3 top-2 text-gray-500 font-bold"
+                >৳</span
+              >
+              <input
+                v-model="payForm.amount"
+                type="number"
+                placeholder="Enter Amount"
+                class="w-full pl-8 p-2 border rounded-lg font-bold text-lg text-emerald-600 focus:ring-2 focus:ring-emerald-500 outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-gray-500 mb-1"
+              >Note (Optional)</label
+            >
+            <textarea
+              v-model="payForm.note"
+              rows="2"
+              class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+              placeholder="e.g. Paid via staff"
+            ></textarea>
+          </div>
+        </div>
+
+        <div
+          class="px-6 py-4 bg-gray-50 dark:bg-slate-800 flex justify-end gap-3"
+        >
+          <button
+            @click="showPayModal = false"
+            class="px-4 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded-lg text-sm"
+          >
+            Cancel
+          </button>
+          <button
+            @click="submitPayment"
+            :disabled="submittingPay"
+            class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm flex items-center gap-2"
+          >
+            <span
+              v-if="submittingPay"
+              class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"
+            ></span>
+            Confirm Payment
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

@@ -18,6 +18,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\CouponController;
 use App\Http\Controllers\SalesReturnController;
 use App\Http\Controllers\ExpenseController;
+use App\Http\Controllers\TransactionController;
 
 // --- Public Routes ---
 Route::post('/register', [AuthController::class, 'register']);
@@ -60,6 +61,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/expense-categories', [ExpenseController::class, 'categories']);
     Route::post('/expense-categories', [ExpenseController::class, 'storeCategory']);
 
+
+    // Transaction / Payment Routes
+    Route::get('/transactions', [TransactionController::class, 'index']);
+    Route::post('/transactions', [TransactionController::class, 'store']);
+
     // --- Admin Only Routes ---
     Route::middleware('role:admin')->group(function () {
 
@@ -100,6 +106,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/coupons', [CouponController::class, 'store']);
         Route::delete('/coupons/{id}', [CouponController::class, 'destroy']);
         Route::put('/coupons/{id}', [CouponController::class, 'update']);
+
+        // Transaction / Payment
+        Route::delete('/transactions/{id}', [TransactionController::class, 'destroy']);
     });
 
 });
