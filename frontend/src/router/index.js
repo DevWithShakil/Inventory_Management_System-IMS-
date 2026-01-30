@@ -14,6 +14,8 @@ import PurchaseCreate from '../views/PurchaseCreate.vue';
 import Profile from '../views/Profile.vue';
 import Users from '../views/Users.vue';
 import Coupons from '../views/Coupons.vue';
+import ExpenseList from '../views/ExpenseList.vue';
+import ExpenseCategories from '../views/ExpenseCategories.vue';
 
 const routes = [
     {
@@ -99,6 +101,17 @@ const routes = [
                 component: Coupons,
                 meta: { requiresAuth: true, role: 'admin' }
             },
+
+            {
+                path: '/expenses',
+                name: 'expenses',
+                component: ExpenseList,
+            },
+            {
+                path: '/expense-categories',
+                name: 'expense-categories',
+                component: ExpenseCategories,
+            }
 
         ]
     },

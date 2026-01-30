@@ -19,7 +19,8 @@ import {
   BanknotesIcon,
   SwatchIcon,
   ScaleIcon,
-  TicketIcon, // 🔥 Added for Coupon
+  TicketIcon,
+  CurrencyDollarIcon, // 🔥 Added for Expenses
 } from "@heroicons/vue/24/outline";
 
 const route = useRoute();
@@ -83,6 +84,22 @@ const menuItems = computed(() => {
         { name: "Sales History", path: "/sales", icon: ListBulletIcon },
       ],
     },
+
+    // 🔥 EXPENSES SECTION ADDED HERE
+    {
+      name: "Expenses",
+      icon: CurrencyDollarIcon,
+      roles: ["admin", "staff"], // স্টাফরাও দেখতে পাবে
+      children: [
+        { name: "All Expenses", path: "/expenses", icon: ListBulletIcon },
+        {
+          name: "Add Expense",
+          path: "/expenses?action=add",
+          icon: PlusCircleIcon,
+        },
+      ],
+    },
+
     {
       name: "Purchases",
       icon: ClipboardDocumentCheckIcon,
@@ -149,15 +166,12 @@ const menuItems = computed(() => {
         },
       ],
     },
-
-    // 🔥 NEW COUPON SECTION ADDED HERE
     {
       name: "Coupons & Offers",
       icon: TicketIcon,
-      roles: ["admin"], // শুধু অ্যাডমিন কুপন বানাতে পারবে
-      path: "/coupons", // Coupon List Page
+      roles: ["admin"],
+      path: "/coupons",
     },
-
     {
       name: "User Management",
       path: "/users",
