@@ -16,16 +16,30 @@ class SaleController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = Sale::with('customer')
+            // 🔥 Updated: Added 'user' relation to show Sales Person Name
+            $query = Sale::with(['customer', 'user'])
                 ->withSum('sales_returns', 'refund_amount')
                 ->withCount('sales_returns')
-                // 🔥 New: Load return items to check condition
+                // Load return items to check condition
                 ->with(['sales_returns.return_items' => function($q) {
                     $q->select('sales_return_id', 'return_condition');
                 }])
                 ->latest();
 
-            // Search Filter
+            // 🔥 NEW: Role Based Filtering
+            $user = $request->user();
+
+            // 1. Staff can only see their own sales
+            // if (strtolower($user->role) === 'staff') {
+            //     $query->where('created_by', $user->id);
+            // }
+
+            // 2. Admin can filter by specific staff
+            if (strtolower($user->role) === 'admin' && $request->filled('staff_id')) {
+                $query->where('created_by', $request->staff_id);
+            }
+
+            // Search Filter (Existing)
             if ($request->search) {
                 $search = $request->search;
                 $query->where(function($q) use ($search) {
@@ -37,12 +51,12 @@ class SaleController extends Controller
                 });
             }
 
-            // Date Filter
+            // Date Filter (Existing)
             if ($request->start_date && $request->end_date) {
                 $query->whereBetween('date', [$request->start_date, $request->end_date]);
             }
 
-            // 🔥 Updated Status Filter Logic
+            // Status Filter Logic (Existing)
             if ($request->status) {
                 if ($request->status === 'returned') {
                     $query->whereHas('sales_returns');
@@ -54,7 +68,7 @@ class SaleController extends Controller
                 }
                 elseif ($request->status === 'returned_bad') {
                     $query->whereHas('sales_returns.return_items', function($q) {
-                        $q->where('return_condition', 'bad'); // or 'damaged'
+                        $q->where('return_condition', 'bad');
                     });
                 }
                 else {
@@ -68,6 +82,7 @@ class SaleController extends Controller
                 'status' => true,
                 'data' => $sales
             ]);
+
         } catch (\Exception $e) {
             Log::error('Sale Index Error: ' . $e->getMessage());
             return response()->json(['status' => false, 'message' => 'Failed to fetch sales'], 500);
@@ -90,14 +105,18 @@ class SaleController extends Controller
 
     try {
         DB::beginTransaction();
-
         $subtotal = 0;
         $itemsToInsert = [];
+
         foreach ($request->items as $item) {
             $product = Product::find($item['product_id']);
 
-            if (!$product || $product->stock_quantity < $item['quantity']) {
-                throw new \Exception("Stock error for product: " . ($product->name ?? 'Unknown'));
+            if (!$product) {
+                throw new \Exception("Product not found ID: " . $item['product_id']);
+            }
+
+            if ($product->stock_quantity < $item['quantity']) {
+                throw new \Exception("Insufficient stock for: " . $product->name . " (Available: " . $product->stock_quantity . ")");
             }
 
             $lineTotal = $item['quantity'] * $item['unit_price'];
@@ -111,6 +130,7 @@ class SaleController extends Controller
                 'subtotal'    => $lineTotal
             ];
         }
+
         $pointsUsed = 0;
         $customer = null;
 
@@ -120,13 +140,13 @@ class SaleController extends Controller
 
             if ($customer && $redeemAmount > 0) {
                 if ($customer->reward_points < $redeemAmount) {
-                        throw new \Exception("Insufficient points! You have: " . $customer->reward_points);
+                    throw new \Exception("Insufficient points! You have: " . $customer->reward_points);
                 }
 
                 $maxRedeemable = floor($subtotal * 0.25);
 
                 if ($redeemAmount > $maxRedeemable) {
-                    throw new \Exception("Max redeemable points: {$maxRedeemable}");
+                    throw new \Exception("Max redeemable points for this order: {$maxRedeemable}");
                 }
 
                 $pointsUsed = $redeemAmount;
@@ -140,9 +160,8 @@ class SaleController extends Controller
             if (!$coupon) throw new \Exception("Invalid coupon code.");
             if ($coupon->expires_at && now()->gt($coupon->expires_at)) throw new \Exception("Coupon has expired.");
             if ($coupon->usage_limit > 0 && $coupon->used_count >= $coupon->usage_limit) throw new \Exception("Coupon usage limit reached.");
-            if ($subtotal < $coupon->min_purchase) throw new \Exception("Min purchase: {$coupon->min_purchase}");
+            if ($subtotal < $coupon->min_purchase) throw new \Exception("Min purchase required for coupon: {$coupon->min_purchase}");
         }
-
 
         $couponDiscount = $request->discount ?? 0;
         $totalDiscount = $couponDiscount + $pointsUsed;
@@ -152,12 +171,20 @@ class SaleController extends Controller
         if ($grandTotal < 0) $grandTotal = 0;
 
         $dueAmount = $grandTotal - $request->paid_amount;
-        $paymentStatus = $dueAmount <= 0 ? 'paid' : ($request->paid_amount > 0 ? 'partial' : 'due');
+
+        if ($dueAmount <= 0) {
+            $paymentStatus = 'paid';
+            $dueAmount = 0;
+        } elseif ($request->paid_amount > 0) {
+            $paymentStatus = 'partial';
+        } else {
+            $paymentStatus = 'due';
+        }
 
         $sale = Sale::create([
             'customer_id'    => $request->customer_id,
-            'invoice_no'     => 'INV-' . time() . rand(10,99),
-            'date'           => $request->date ?? now(),
+            'invoice_no'     => 'INV-' . time() . rand(100,999),
+            'date'           => $request->date ?? date('Y-m-d'),
             'subtotal'       => $subtotal,
             'discount'       => $totalDiscount,
             'tax'            => $tax,
@@ -166,14 +193,13 @@ class SaleController extends Controller
             'due_amount'     => $dueAmount,
             'payment_method' => $request->payment_method,
             'payment_status' => $paymentStatus,
-            'created_by'     => auth()->id() ?? 1,
+            'created_by'     => auth()->id(),
             'redeemed_points' => $pointsUsed,
         ]);
 
         if ($dueAmount > 0 && $customer) {
             $customer->increment('balance', $dueAmount);
         }
-
         foreach ($itemsToInsert as $itemData) {
             SaleItem::create([
                 'sale_id'    => $sale->id,
@@ -182,6 +208,7 @@ class SaleController extends Controller
                 'unit_price' => $itemData['unit_price'],
                 'subtotal'   => $itemData['subtotal']
             ]);
+
             $itemData['product_obj']->decrement('stock_quantity', $itemData['quantity']);
         }
 
@@ -194,12 +221,16 @@ class SaleController extends Controller
             if ($newPoints > 0) {
                 $customer->increment('reward_points', $newPoints);
             }
+
             $customer->increment('total_spent', $grandTotal);
         }
-        if ($coupon) $coupon->increment('used_count');
+
+        if ($coupon) {
+            $coupon->increment('used_count');
+        }
 
         DB::commit();
-        $sale->load(['customer', 'sale_items.product']);
+        $sale->load(['customer', 'items.product', 'user']);
 
         return response()->json([
             'status' => true,
@@ -219,6 +250,7 @@ class SaleController extends Controller
         try {
             $sale = Sale::with([
                 'customer',
+                'user',
                 'sale_items.product',
                 'sales_returns.return_items.product'
             ])->find($id);

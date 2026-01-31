@@ -14,11 +14,16 @@ use Illuminate\Support\Facades\Log;
 
 class SalesReturnController extends Controller
 {
-    public function index()
-    {
-        $returns = SalesReturn::with(['customer', 'sale'])->latest()->get();
-        return response()->json(['status' => true, 'data' => $returns]);
-    }
+    public function index(Request $request)
+{
+    $returns = SalesReturn::with(['sale', 'customer', 'user'])
+                ->latest()
+                ->paginate(15);
+    return response()->json([
+        'status' => true,
+        'data' => $returns
+    ]);
+}
 
     public function store(Request $request)
     {
@@ -72,7 +77,7 @@ class SalesReturnController extends Controller
                 'deduction_amount' => $request->deduction_amount ?? 0,
                 'refund_amount' => $finalRefundAmount,
                 'note' => $request->note,
-                'created_by' => auth()->id() ?? 1
+                'created_by' => auth()->id(),
             ]);
 
             foreach ($itemsToInsert as $itemData) {
@@ -148,4 +153,16 @@ class SalesReturnController extends Controller
             return response()->json(['status' => false, 'message' => $e->getMessage()], 500);
         }
     }
+
+    public function returnHistory()
+{
+    $returns = SalesReturn::with(['user', 'sale', 'sale.customer'])
+                ->latest()
+                ->paginate(20);
+
+    return response()->json([
+        'status' => true,
+        'data' => $returns
+    ]);
+}
 }

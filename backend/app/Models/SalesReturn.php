@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 class SalesReturn extends Model
 {
     use HasFactory;
+
     protected $fillable = [
         'sale_id',
         'customer_id',
@@ -29,9 +30,13 @@ class SalesReturn extends Model
     {
         return $this->belongsTo(Customer::class);
     }
-
     public function return_items()
     {
         return $this->hasMany(SalesReturnItem::class);
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 }

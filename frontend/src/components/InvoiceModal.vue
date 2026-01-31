@@ -5,7 +5,7 @@ import {
   XMarkIcon,
   PrinterIcon,
   ReceiptPercentIcon,
-  ArrowUturnLeftIcon, // ✅ Added Icon
+  ArrowUturnLeftIcon,
 } from "@heroicons/vue/24/outline";
 
 const props = defineProps({
@@ -400,29 +400,34 @@ const handlePrint = async (mode) => {
                 </tr>
               </tbody>
             </table>
-
-            <div
-              class="mt-1 flex justify-between items-center"
-              :class="printMode === 'thermal' ? 'text-[10px]' : 'text-xs'"
-            >
-              <span class="italic text-gray-500 truncate max-w-[150px]">{{
-                ret.note
-              }}</span>
-              <span class="font-bold">Total: {{ ret.refund_amount }}</span>
-            </div>
           </div>
         </div>
 
         <div
-          class="text-center text-gray-400 pt-4 border-t border-gray-100 mt-4"
+          class="text-center pt-4 border-t border-gray-100 mt-6"
           :class="printMode === 'thermal' ? 'text-[10px]' : 'text-xs mt-12'"
         >
-          <p>
+          <div class="mb-4 flex justify-between items-center text-gray-500">
+            <div class="text-left">
+              <p>Payment Mode:</p>
+              <p class="font-bold uppercase text-black">
+                {{ sale?.payment_method }}
+              </p>
+            </div>
+            <div class="text-right">
+              <p>Sold By:</p>
+              <p class="font-bold text-black">
+                {{ sale?.user?.name || "Admin" }}
+              </p>
+            </div>
+          </div>
+
+          <p class="text-gray-400">
             {{
               settings?.invoice_footer_text || "Thank you for your business!"
             }}
           </p>
-          <p v-if="printMode !== 'thermal'">
+          <p v-if="printMode !== 'thermal'" class="text-gray-400">
             For any queries, contact {{ settings?.company_email || "support" }}
           </p>
 

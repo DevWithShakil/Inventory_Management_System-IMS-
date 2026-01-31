@@ -62,6 +62,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/sales-returns', [SalesReturnController::class, 'index']);
     Route::post('/sales-returns', [SalesReturnController::class, 'store']);
 
+
     // 8. Expense Management (Shared Access)
     Route::get('/expenses', [ExpenseController::class, 'index']);
     Route::post('/expenses', [ExpenseController::class, 'store']);
