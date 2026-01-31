@@ -7,6 +7,7 @@ use App\Models\Sale;
 use App\Models\Purchase;
 use App\Models\Product;
 use App\Models\SalesReturn;
+use App\Models\SaleItem;
 use App\Models\Expense;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
@@ -17,211 +18,328 @@ class ReportController extends Controller
 {
     /**
      * Dashboard Overview API
-     * Handles logic for Admin vs Staff views
      */
     public function dashboardOverview(Request $request)
-{
-    try {
-        $user = auth()->user();
-        $range = $request->query('range', 'today');
+    {
+        try {
+            $user = auth()->user();
+            $range = $request->query('range', 'today');
 
-        // --- 1. Date Logic ---
-        switch ($range) {
-            case 'today':
-                $startDate = Carbon::today();
-                $endDate = Carbon::today()->endOfDay();
-                break;
-            case 'yesterday':
-                $startDate = Carbon::yesterday();
-                $endDate = Carbon::yesterday()->endOfDay();
-                break;
-            case 'last_7_days':
-                $startDate = Carbon::now()->subDays(6)->startOfDay();
-                $endDate = Carbon::now()->endOfDay();
-                break;
-            case 'this_month':
-                $startDate = Carbon::now()->startOfMonth();
-                $endDate = Carbon::now()->endOfMonth();
-                break;
-            case 'last_month':
-                $startDate = Carbon::now()->subMonth()->startOfMonth();
-                $endDate = Carbon::now()->subMonth()->endOfMonth();
-                break;
-            case 'all_time':
-                $startDate = Carbon::create(2000, 1, 1);
-                $endDate = Carbon::now()->endOfDay();
-                break;
-            default:
-                $startDate = Carbon::today();
-                $endDate = Carbon::today()->endOfDay();
-        }
+            // --- 1. Date Logic & Chart Resolution ---
+            $chartResolution = 'day'; // Default
 
-        $startStr = $startDate->format('Y-m-d H:i:s');
-        $endStr = $endDate->format('Y-m-d H:i:s');
+            switch ($range) {
+                case 'today':
+                    $startDate = Carbon::today();
+                    $endDate = Carbon::today()->endOfDay();
+                    $chartResolution = 'hour'; // 🔥 Fix: Today needs hourly chart
+                    break;
+                case 'yesterday':
+                    $startDate = Carbon::yesterday();
+                    $endDate = Carbon::yesterday()->endOfDay();
+                    $chartResolution = 'hour'; // 🔥 Fix: Yesterday needs hourly chart
+                    break;
+                case 'last_7_days':
+                    $startDate = Carbon::now()->subDays(6)->startOfDay();
+                    $endDate = Carbon::now()->endOfDay();
+                    break;
+                case 'this_month':
+                    $startDate = Carbon::now()->startOfMonth();
+                    $endDate = Carbon::now()->endOfMonth();
+                    break;
+                case 'last_month':
+                    $startDate = Carbon::now()->subMonth()->startOfMonth();
+                    $endDate = Carbon::now()->subMonth()->endOfMonth();
+                    break;
+                case 'all_time':
+                    $firstSale = Sale::oldest('date')->first();
+                    $startDate = $firstSale ? Carbon::parse($firstSale->date)->startOfDay() : Carbon::now()->startOfYear();
+                    $endDate = Carbon::now()->endOfDay();
 
-        // --- 2. Query Builder (Role Based Filtering) ---
+                    if ($startDate->diffInDays($endDate) > 90) {
+                        $chartResolution = 'month';
+                    }
+                    break;
+                default:
+                    $startDate = Carbon::today();
+                    $endDate = Carbon::today()->endOfDay();
+                    $chartResolution = 'hour';
+            }
 
-        // Sales Query Base
-        $salesQuery = Sale::whereBetween('date', [$startStr, $endStr]);
+            $startStr = $startDate->format('Y-m-d H:i:s');
+            $endStr = $endDate->format('Y-m-d H:i:s');
 
-        // Refunds Query Base
-        $refundQuery = SalesReturn::whereBetween('date', [$startStr, $endStr]);
+            // --- 2. Query Builder ---
 
-        // 🔥 STAFF FILTER: Metrics এর জন্য
-        if ($user->role === 'staff') {
-            $salesQuery->where('created_by', $user->id);
-            $refundQuery->where('created_by', $user->id);
-        }
+            $salesQuery = Sale::query();
+            $refundQuery = SalesReturn::query();
 
-        // --- 3. Base Metrics Calculation (Visible to EVERYONE) ---
+            // Date Filtering
+            if ($range === 'today' || $range === 'yesterday') {
+                // For hourly charts, we need precise timestamps, so we use created_at where possible
+                // But generally filtering by 'date' column is safer for reports if your date column stores Y-m-d only
+                $salesQuery->whereDate('date', $startDate->format('Y-m-d'));
+                $refundQuery->whereDate('created_at', $startDate->format('Y-m-d'));
+            } else {
+                $salesQuery->whereBetween('date', [$startStr, $endStr]);
+                $refundQuery->whereBetween('date', [$startStr, $endStr]);
+            }
 
-        // Gross Sales (Using clone to reuse the filtered query)
-        $grossSales = (clone $salesQuery)->sum('grand_total');
+            // 🔥 STAFF FILTER LOGIC
+            if ($user->role === 'staff') {
+                $salesQuery->where('created_by', $user->id);
+                $refundQuery->whereHas('sale', function($q) use ($user) {
+                    $q->where('created_by', $user->id);
+                });
+            }
 
-        // Total Discount
-        $totalDiscount = (clone $salesQuery)->sum('discount');
+            // --- 3. Metrics Calculation ---
 
-        // Total Refunds
-        $totalRefunds = $refundQuery->sum('refund_amount');
+            $grossSales = (clone $salesQuery)->sum('grand_total');
+            $totalDiscount = (clone $salesQuery)->sum('discount');
+            $totalRefunds = $refundQuery->sum('refund_amount');
+            $netSales = $grossSales - $totalRefunds;
+            $invoiceCount = (clone $salesQuery)->count();
 
-        // Net Sales (Gross - Returns)
-        $netSales = $grossSales - $totalRefunds;
+            // Payment Breakdown
+            $cashSale = (clone $salesQuery)->where('payment_method', 'cash')->sum('paid_amount');
+            $digitalSale = (clone $salesQuery)->where('payment_method', '!=', 'cash')->sum('paid_amount');
 
-        // Invoice Counts
-        $invoiceCount = (clone $salesQuery)->count();
+            // Due Calculation
+            $totalCollectedInRange = $cashSale + $digitalSale;
+            $rangeDue = max(0, $netSales - $totalCollectedInRange);
 
-        // Payment Breakdown
-        $cashSale = (clone $salesQuery)->where('payment_method', 'cash')->sum('paid_amount');
-        $digitalSale = (clone $salesQuery)->where('payment_method', '!=', 'cash')->sum('paid_amount');
+            // --- 4. Sensitive Metrics (Admin Only) ---
+            $actualCOGS = 0;
+            $totalExpenses = 0;
+            $netProfit = 0;
+            $inventoryValue = 0;
+            $damagedValue = 0;
 
-        // Calculate Range Specific Due
-        $totalCollectedInRange = $cashSale + $digitalSale;
-        $rangeDue = max(0, $netSales - $totalCollectedInRange);
+            if ($user->role === 'admin') {
+                $totalExpenses = Expense::whereBetween('date', [$startStr, $endStr])->sum('amount');
 
-        // --- 4. Sensitive Metrics (Profit, Cost, Expense) - ADMIN ONLY ---
-        $actualCOGS = 0;
-        $totalExpenses = 0;
-        $netProfit = 0;
-        $badReturnCost = 0;
-        $purchases = 0;
-        $inventoryValue = 0;
-        $damagedValue = 0;
+                // COGS Calculation (Simplified)
+                $totalSoldCost = DB::table('sale_items')
+                    ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                    ->join('products', 'products.id', '=', 'sale_items.product_id')
+                    ->whereBetween('sales.date', [$startStr, $endStr])
+                    ->sum(DB::raw('sale_items.quantity * products.cost_price'));
 
-        if ($user->role === 'admin') {
-            // A. COGS Calculation
-            $totalSoldCost = DB::table('sale_items')
-                ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
-                ->join('products', 'products.id', '=', 'sale_items.product_id')
-                ->whereBetween('sales.date', [$startStr, $endStr])
-                ->sum(DB::raw('sale_items.quantity * products.cost_price'));
+                $goodReturnCost = DB::table('sales_return_items')
+                    ->join('sales_returns', 'sales_returns.id', '=', 'sales_return_items.sales_return_id')
+                    ->join('products', 'products.id', '=', 'sales_return_items.product_id')
+                    ->whereBetween('sales_returns.date', [$startStr, $endStr])
+                    ->where('sales_return_items.return_condition', 'good')
+                    ->sum(DB::raw('sales_return_items.quantity * products.cost_price'));
 
-            $goodReturnCost = DB::table('sales_return_items')
-                ->join('sales_returns', 'sales_returns.id', '=', 'sales_return_items.sales_return_id')
-                ->join('products', 'products.id', '=', 'sales_return_items.product_id')
-                ->whereBetween('sales_returns.date', [$startStr, $endStr])
-                ->where('sales_return_items.return_condition', 'good')
-                ->sum(DB::raw('sales_return_items.quantity * products.cost_price'));
+                $actualCOGS = $totalSoldCost - $goodReturnCost;
+                $netProfit = ($netSales - $actualCOGS) - $totalExpenses;
 
-            $badReturnCost = DB::table('sales_return_items')
-                ->join('sales_returns', 'sales_returns.id', '=', 'sales_return_items.sales_return_id')
-                ->join('products', 'products.id', '=', 'sales_return_items.product_id')
-                ->whereBetween('sales_returns.date', [$startStr, $endStr])
-                ->where('sales_return_items.return_condition', 'bad')
-                ->sum(DB::raw('sales_return_items.quantity * products.cost_price'));
+                $inventoryValue = Product::sum(DB::raw('stock_quantity * cost_price'));
+                $damagedValue = Product::sum(DB::raw('damaged_quantity * cost_price'));
+            }
 
-            $actualCOGS = $totalSoldCost - $goodReturnCost;
+            // --- 5. Optimized Chart Data Generation ---
+            $chartData = $this->getOptimizedChartData($salesQuery, $refundQuery, $startDate, $endDate, $chartResolution);
 
-            // B. Expenses
-            $totalExpenses = Expense::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
-                                    ->sum('amount');
-
-            // C. Net Profit
-            $netProfit = ($netSales - $actualCOGS) - $totalExpenses;
-
-            // D. Overall Assets
-            $inventoryValue = Product::sum(DB::raw('stock_quantity * cost_price'));
-            $damagedValue = Product::sum(DB::raw('damaged_quantity * cost_price'));
-            $purchases = Purchase::whereBetween('date', [$startStr, $endStr])->sum('grand_total');
-        }
-
-        // --- 5. Chart Data ---
-        $chartData = $this->generateChartData($startDate, $endDate, $range, $user);
-
-        // --- 6. Overall Stats ---
-        $overallStats = [
-            'total_due' => round(Sale::sum('due_amount'), 2),
-            'total_collected' => round(Sale::sum('paid_amount'), 2),
-        ];
-
-        if ($user->role === 'admin') {
-            $overallStats['inventory_value'] = round($inventoryValue, 2);
-            $overallStats['damaged_stock_value'] = round($damagedValue, 2);
-        }
-
-        // --- 🔥 7. RECENT SALES (New Section) ---
-        // Staff will see their own last 5 sales, Admin will see global last 5 sales
-        $recentSalesQuery = Sale::with('customer:id,name')->latest();
-
-        if ($user->role === 'staff') {
-            $recentSalesQuery->where('created_by', $user->id);
-        }
-
-        $recentSales = $recentSalesQuery->take(5)->get()->map(function($sale) {
-            return [
-                'id' => $sale->id,
-                'invoice_no' => $sale->invoice_no,
-                'customer' => $sale->customer ? $sale->customer->name : 'Walk-in Customer',
-                'amount' => $sale->grand_total,
-                'status' => $sale->payment_status, // e.g., 'paid', 'due'
-                'time' => Carbon::parse($sale->created_at)->diffForHumans() // e.g., "5 mins ago"
+            // --- 6. Overall Stats ---
+            $overallStats = [
+                'total_due' => round(Sale::sum('due_amount'), 2),
+                'total_collected' => round(Sale::sum('paid_amount'), 2),
             ];
-        });
 
-        return response()->json([
-            'status' => true,
-            'data' => [
-                'role' => $user->role,
-                'metrics' => [
-                    'range_gross_sales' => round($grossSales, 2),
-                    'range_sales' => round($netSales, 2),
-                    'range_returns' => round($totalRefunds, 2),
-                    'range_discount' => round($totalDiscount, 2),
-                    'range_count' => $invoiceCount,
-                    'range_cash' => round($cashSale, 2),
-                    'range_digital' => round($digitalSale, 2),
-                    'range_due' => round($rangeDue, 2),
+            if ($user->role === 'admin') {
+                $overallStats['inventory_value'] = round($inventoryValue, 2);
+                $overallStats['damaged_stock_value'] = round($damagedValue, 2);
+            }
 
-                    // Admin Only (0 for staff)
-                    'range_profit' => round($netProfit, 2),
-                    'range_expenses' => round($totalExpenses, 2),
-                    'range_cogs' => round($actualCOGS, 2),
-                    'range_damaged_loss' => round($badReturnCost, 2),
-                    'range_purchases' => round($purchases, 2),
-                ],
-                'overall' => $overallStats,
-                'inventory' => [
-                    'total_products' => Product::count(),
-                    'low_stock' => Product::whereColumn('stock_quantity', '<=', 'alert_quantity')->count(),
-                ],
-                'chart' => $chartData,
-                'top_products' => $this->getTopProducts($startDate, $endDate, $user),
+            $lowStockList = Product::whereColumn('stock_quantity', '<=', 'alert_quantity')->take(5)->get();
 
-                // 🔥 New Data Added to Response
-                'recent_sales' => $recentSales,
+            // --- 7. Recent Sales ---
+            $recentSalesQuery = Sale::with('customer:id,name')->latest();
+            if ($user->role === 'staff') {
+                $recentSalesQuery->where('created_by', $user->id);
+            }
+            $recentSales = $recentSalesQuery->take(5)->get()->map(function($sale) {
+                return [
+                    'id' => $sale->id,
+                    'invoice_no' => $sale->invoice_no,
+                    'customer' => $sale->customer ? $sale->customer->name : 'Walk-in',
+                    'amount' => $sale->grand_total,
+                    'status' => $sale->payment_status,
+                    'time' => Carbon::parse($sale->created_at)->diffForHumans()
+                ];
+            });
 
-                'low_stock_list' => $this->getLowStockList(),
-                'filter_label' => ucfirst(str_replace('_', ' ', $range))
-            ]
-        ]);
+            // --- 8. Top Products ---
+            $topProducts = $this->getTopProducts($startStr, $endStr, $user);
 
-    } catch (\Exception $e) {
-        Log::error('Dashboard Error: ' . $e->getMessage());
-        return response()->json(['status' => false, 'message' => $e->getMessage()], 500);
+            return response()->json([
+                'status' => true,
+                'data' => [
+                    'metrics' => [
+                        'range_sales' => round($netSales, 2),
+                        'range_gross_sales' => round($grossSales, 2),
+                        'range_returns' => round($totalRefunds, 2),
+                        'range_discount' => round($totalDiscount, 2),
+                        'range_count' => $invoiceCount,
+                        'range_cash' => round($cashSale, 2),
+                        'range_digital' => round($digitalSale, 2),
+                        'range_due' => round($rangeDue, 2),
+                        'range_profit' => round($netProfit, 2),
+                        'range_expenses' => round($totalExpenses, 2),
+                    ],
+                    'overall' => $overallStats,
+                    'inventory' => [
+                        'low_stock' => Product::whereColumn('stock_quantity', '<=', 'alert_quantity')->count(),
+                    ],
+                    'chart' => $chartData,
+                    'recent_sales' => $recentSales,
+                    'top_products' => $topProducts,
+                    'low_stock_list' => $lowStockList,
+                    'filter_label' => ucfirst(str_replace('_', ' ', $range))
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Dashboard Error: ' . $e->getMessage());
+            return response()->json(['status' => false, 'message' => $e->getMessage()], 500);
+        }
     }
-}
 
-    // --- Helpers ---
+    // 🔥 Helper for Chart Optimization (Handles Hour/Day/Month)
+    private function getOptimizedChartData($salesQueryBase, $refundQueryBase, $startDate, $endDate, $resolution)
+    {
+        $salesQuery = clone $salesQueryBase;
+        $refundQuery = clone $refundQueryBase;
+        $driver = DB::connection()->getDriverName();
 
+        // --- 1. Define Format Strings based on Resolution & Driver ---
+        $dateColumn = 'date'; // Default column for grouping
+
+        if ($resolution === 'hour') {
+            // 🔥 IMPORTANT: For hourly charts, we MUST use 'created_at' because 'date' usually has 00:00:00
+            $dateColumn = 'created_at';
+
+            if ($driver === 'pgsql') {
+                $sqlFormat = "TO_CHAR(created_at, 'HH24')"; // 00-23
+            } else {
+                $sqlFormat = "DATE_FORMAT(created_at, '%H')"; // 00-23
+            }
+            $phpFormat = 'H'; // PHP hour format
+        }
+        elseif ($resolution === 'month') {
+            if ($driver === 'pgsql') {
+                $sqlFormat = "TO_CHAR(date, 'YYYY-MM')";
+            } else {
+                $sqlFormat = "DATE_FORMAT(date, '%Y-%m')";
+            }
+            $phpFormat = 'Y-m';
+        }
+        else { // Day (Default)
+            if ($driver === 'pgsql') {
+                $sqlFormat = "TO_CHAR(date, 'YYYY-MM-DD')";
+            } else {
+                $sqlFormat = "DATE_FORMAT(date, '%Y-%m-%d')";
+            }
+            $phpFormat = 'Y-m-d';
+        }
+
+        // --- 2. Fetch Sales Data ---
+        $salesData = $salesQuery->select(
+            DB::raw("$sqlFormat as date_label"),
+            DB::raw('SUM(grand_total) as total')
+        )
+        ->groupBy('date_label')
+        ->pluck('total', 'date_label')
+        ->toArray();
+
+        // --- 3. Fetch Refunds Data ---
+        $refundData = $refundQuery->select(
+            DB::raw("$sqlFormat as date_label"),
+            DB::raw('SUM(refund_amount) as total')
+        )
+        ->groupBy('date_label')
+        ->pluck('total', 'date_label')
+        ->toArray();
+
+        // --- 4. Fill Gaps Logic ---
+        $categories = [];
+        $netData = [];
+
+        // Loop Logic differs for 'hour'
+        if ($resolution === 'hour') {
+            // Loop 00 to 23
+            for ($i = 0; $i < 24; $i++) {
+                $label = str_pad($i, 2, '0', STR_PAD_LEFT); // "09", "10"
+                $categories[] = Carbon::createFromTime($i, 0)->format('h A'); // "09 AM"
+
+                $gross = $salesData[$label] ?? 0;
+                $refund = $refundData[$label] ?? 0;
+                $netData[] = max(0, round($gross - $refund, 2));
+            }
+        } else {
+            // Loop Dates
+            $current = $startDate->copy();
+            while ($current <= $endDate) {
+                $label = $current->format($phpFormat);
+                $categories[] = $resolution === 'month' ? $current->format('M Y') : $current->format('d M');
+
+                $gross = $salesData[$label] ?? 0;
+                $refund = $refundData[$label] ?? 0;
+                $netData[] = max(0, round($gross - $refund, 2));
+
+                if ($resolution === 'month') {
+                    $current->addMonth();
+                } else {
+                    $current->addDay();
+                }
+            }
+        }
+
+        return [
+            'categories' => $categories,
+            'series' => [[
+                'name' => 'Net Revenue',
+                'data' => $netData
+            ]]
+        ];
+    }
+
+    private function getTopProducts($startStr, $endStr, $user)
+    {
+        $query = SaleItem::select('product_id', DB::raw('sum(quantity) as total_sold'))
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->whereBetween('sales.date', [$startStr, $endStr]);
+
+        if ($user && $user->role === 'staff') {
+            $query->where('sales.created_by', $user->id);
+        }
+
+        return $query->groupBy('product_id')
+            ->orderByDesc('total_sold')
+            ->with('product')
+            ->take(5)
+            ->get()
+            ->map(function($item) {
+                return [
+                    'id' => $item->product->id ?? 0,
+                    'name' => $item->product->name ?? 'Unknown',
+                    'image' => $item->product->image,
+                    'total_sold' => (int) $item->total_sold,
+                    'stock_quantity' => $item->product->stock_quantity ?? 0
+                ];
+            });
+    }
+
+    private function getLowStockList() {
+        return Product::whereColumn('stock_quantity', '<=', 'alert_quantity')
+            ->select('id', 'name', 'stock_quantity', 'alert_quantity', 'image')
+            ->take(5)->get();
+    }
+
+    // ... Other endpoints (lowStockReport, dailySalesReport) ...
     public function lowStockReport()
     {
         $products = Product::whereColumn('stock_quantity', '<=', 'alert_quantity')
@@ -242,123 +360,5 @@ class ReportController extends Controller
             ->get();
 
         return response()->json(['status' => true, 'data' => $report]);
-    }
-
-    private function getTopProducts($startDate, $endDate, $user = null) {
-        $query = DB::table('sale_items')
-            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
-            ->join('products', 'products.id', '=', 'sale_items.product_id')
-            ->whereBetween('sales.date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')]);
-
-        // Filter Top Products by Staff if needed
-        if ($user && $user->role === 'staff') {
-            $query->where('sales.created_by', $user->id);
-        }
-
-        return $query->select('products.name', 'products.image', 'products.stock_quantity', DB::raw('SUM(sale_items.quantity) as total_sold'))
-            ->groupBy('products.id', 'products.name', 'products.image', 'products.stock_quantity')
-            ->orderByDesc('total_sold')
-            ->limit(5)->get();
-    }
-
-    private function getLowStockList() {
-        return Product::whereColumn('stock_quantity', '<=', 'alert_quantity')
-            ->select('id', 'name', 'stock_quantity', 'alert_quantity', 'image', 'sku')
-            ->take(5)->get();
-    }
-
-    private function generateChartData($startDate, $endDate, $range, $user)
-    {
-        $categories = [];
-        $netRevenues = [];
-        $netCosts = [];
-
-        $driver = DB::connection()->getDriverName();
-        $role = $user->role;
-
-        // Date Format Logic
-        if ($range === 'today' || $range === 'yesterday') {
-             $dateFormat = ($driver === 'pgsql') ? "EXTRACT(HOUR FROM created_at)" : "EXTRACT(HOUR FROM created_at)";
-        } else {
-             $dateFormat = ($driver === 'pgsql') ? "CAST(date AS DATE)" : "DATE(date)";
-        }
-
-        // 1. Fetch Sales Data (Filtered by Role)
-        $salesQuery = Sale::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')]);
-        if ($role === 'staff') {
-            $salesQuery->where('created_by', $user->id);
-        }
-        $salesData = $salesQuery->selectRaw("$dateFormat as key_date, SUM(grand_total) as total")
-            ->groupBy('key_date')
-            ->pluck('total', 'key_date');
-
-        // 2. Fetch Refunds Data (Filtered by Role)
-        $refundQuery = SalesReturn::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')]);
-        if ($role === 'staff') {
-            $refundQuery->where('created_by', $user->id);
-        }
-        $refundData = $refundQuery->selectRaw("$dateFormat as key_date, SUM(refund_amount) as total")
-            ->groupBy('key_date')
-            ->pluck('total', 'key_date');
-
-        // 3. Fetch Cost Data (Admin Only)
-        $costData = collect([]);
-        if ($role === 'admin') {
-            $costDateCol = ($range === 'today' || $range === 'yesterday') ? 'sales.created_at' : 'sales.date';
-
-            if ($range === 'today' || $range === 'yesterday') {
-                 $costDateFormat = ($driver === 'pgsql') ? "EXTRACT(HOUR FROM $costDateCol)" : "EXTRACT(HOUR FROM $costDateCol)";
-            } else {
-                 $costDateFormat = ($driver === 'pgsql') ? "CAST($costDateCol AS DATE)" : "DATE($costDateCol)";
-            }
-
-            $costData = DB::table('sale_items')
-                ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
-                ->join('products', 'products.id', '=', 'sale_items.product_id')
-                ->whereBetween('sales.date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
-                ->selectRaw("$costDateFormat as key_date, SUM(sale_items.quantity * products.cost_price) as total")
-                ->groupBy('key_date')
-                ->pluck('total', 'key_date');
-        }
-
-        // --- Data Filling Loop ---
-        if ($range === 'today' || $range === 'yesterday') {
-            for ($i = 0; $i <= 23; $i++) {
-                $categories[] = Carbon::createFromTime($i, 0)->format('h A');
-
-                $gross = $salesData[(int)$i] ?? 0;
-                $refund = $refundData[(int)$i] ?? 0;
-                $netRevenues[] = max(0, $gross - $refund);
-
-                if ($role === 'admin') {
-                    $cogs = $costData[(int)$i] ?? 0;
-                    $netCosts[] = $cogs;
-                }
-            }
-        } else {
-            // Standard Daily Loop
-            $period = CarbonPeriod::create($startDate, $endDate);
-            foreach ($period as $date) {
-                $dayKey = $date->format('Y-m-d');
-                $categories[] = $date->format('d M');
-
-                $gross = $salesData[$dayKey] ?? 0;
-                $refund = $refundData[$dayKey] ?? 0;
-                $netRevenues[] = max(0, $gross - $refund);
-
-                if ($role === 'admin') {
-                    $cogs = $costData[$dayKey] ?? 0;
-                    $netCosts[] = $cogs;
-                }
-            }
-        }
-
-        return [
-            'categories' => $categories,
-            'series' => [
-                ['name' => 'Revenue', 'data' => $netRevenues],
-                ($role === 'admin' ? ['name' => 'Product Cost', 'data' => $netCosts] : [])
-            ]
-        ];
     }
 }
