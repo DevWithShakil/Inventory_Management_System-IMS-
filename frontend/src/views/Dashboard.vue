@@ -1,5 +1,6 @@
 <script setup>
 import { ref, onMounted, watch, computed } from "vue";
+import { useRouter } from "vue-router";
 import axios from "../axios";
 import VueApexCharts from "vue3-apexcharts";
 import {
@@ -15,12 +16,37 @@ import {
   TagIcon,
   ArrowPathIcon,
   CreditCardIcon,
+  ComputerDesktopIcon,
+  UserPlusIcon,
+  QueueListIcon,
+  ClipboardDocumentListIcon,
+  SparklesIcon, // 🔥 Professional Icon
+  UserCircleIcon,
 } from "@heroicons/vue/24/outline";
 
 // --- State ---
+const router = useRouter();
 const loading = ref(false);
 const filterRange = ref("today");
 const user = ref(JSON.parse(localStorage.getItem("user") || "{}"));
+
+// 🔥 Greeting Logic
+const timeGreeting = computed(() => {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return "Good Morning";
+  if (hour >= 12 && hour < 17) return "Good Afternoon";
+  return "Good Evening";
+});
+
+// 🔥 Formatted Date
+const currentDate = computed(() => {
+  return new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+});
 
 const data = ref({
   metrics: {
@@ -42,6 +68,7 @@ const data = ref({
   inventory: { low_stock: 0 },
   chart: { categories: [], series: [] },
   top_products: [],
+  recent_sales: [],
   low_stock_list: [],
   filter_label: "Today",
 });
@@ -106,87 +133,142 @@ const getImageUrl = (path) =>
   path?.startsWith("http") ? path : `http://localhost:8000/storage/${path}`;
 const formatCurrency = (amount) => "৳ " + Number(amount || 0).toLocaleString();
 
+const navigateTo = (path) => router.push(path);
+
 watch(filterRange, () => fetchData());
 onMounted(() => fetchData());
 </script>
 
 <template>
-  <div class="space-y-6 pb-20">
+  <div class="space-y-5 pb-20">
     <div
-      class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800"
+      class="bg-white dark:bg-slate-900 rounded-xl p-4 border-l-4 border-indigo-600 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4"
     >
-      <div>
-        <h1
-          class="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2"
-        >
-          <PresentationChartLineIcon class="w-8 h-8 text-indigo-600" />
-          {{ user.role === "admin" ? "Executive Dashboard" : "Sales Overview" }}
-        </h1>
-        <p class="text-sm text-gray-500 mt-1">
-          Performance snapshot for
-          <span class="font-bold text-indigo-600">{{ data.filter_label }}</span>
-        </p>
+      <div class="flex items-center gap-3">
+        <div class="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-full">
+          <UserCircleIcon
+            class="w-8 h-8 text-indigo-600 dark:text-indigo-400"
+          />
+        </div>
+        <div>
+          <h2
+            class="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2"
+          >
+            {{ timeGreeting }}, {{ user.name }}
+          </h2>
+          <p class="text-xs text-gray-500 font-medium">
+            {{ currentDate }} •
+            <span class="uppercase text-indigo-600 font-bold"
+              >{{ user.role }} Panel</span
+            >
+          </p>
+        </div>
       </div>
 
-      <div class="relative min-w-[200px]">
-        <select
-          v-model="filterRange"
-          class="w-full appearance-none bg-gray-50 dark:bg-slate-800 border border-gray-300 dark:border-slate-700 py-2.5 pl-4 pr-10 rounded-xl shadow-sm text-sm font-bold focus:ring-2 focus:ring-indigo-500 text-gray-700 dark:text-gray-200 cursor-pointer"
+      <div class="flex items-center gap-2">
+        <span class="text-xs font-bold text-gray-400 uppercase hidden sm:block"
+          >Timeline:</span
         >
-          <option value="today">Today</option>
-          <option value="yesterday">Yesterday</option>
-          <option value="last_7_days">Last 7 Days</option>
-          <option value="this_month">This Month</option>
-          <option value="last_month">Last Month</option>
-          <option value="all_time">All Time</option>
-        </select>
-        <ClockIcon
-          class="w-5 h-5 absolute right-3 top-2.5 text-gray-400 pointer-events-none"
-        />
+        <div class="relative min-w-[160px]">
+          <select
+            v-model="filterRange"
+            class="w-full appearance-none bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 py-2 pl-3 pr-8 rounded-lg text-xs font-bold focus:ring-2 focus:ring-indigo-500 text-gray-700 dark:text-gray-200 cursor-pointer"
+          >
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="last_7_days">Last 7 Days</option>
+            <option value="this_month">This Month</option>
+            <option value="last_month">Last Month</option>
+            <option value="all_time">All Time</option>
+          </select>
+          <ClockIcon
+            class="w-4 h-4 absolute right-2.5 top-2 text-gray-400 pointer-events-none"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div
+        class="grid gap-3"
+        :class="
+          user.role === 'admin'
+            ? 'grid-cols-2 md:grid-cols-4'
+            : 'grid-cols-2 md:grid-cols-3'
+        "
+      >
+        <button
+          @click="navigateTo('/pos')"
+          class="flex items-center justify-center gap-2 p-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm transition transform hover:-translate-y-0.5"
+        >
+          <ComputerDesktopIcon class="w-5 h-5" />
+          <span class="font-bold text-sm">POS System</span>
+        </button>
+
+        <button
+          @click="navigateTo('/customers')"
+          class="flex items-center justify-center gap-2 p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 hover:border-indigo-300 text-gray-700 dark:text-gray-200 rounded-lg shadow-sm transition"
+        >
+          <UserPlusIcon class="w-5 h-5 text-blue-500" />
+          <span class="font-medium text-sm">Customers</span>
+        </button>
+
+        <button
+          v-if="user.role === 'admin'"
+          @click="navigateTo('/inventory')"
+          class="flex items-center justify-center gap-2 p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 hover:border-indigo-300 text-gray-700 dark:text-gray-200 rounded-lg shadow-sm transition"
+        >
+          <QueueListIcon class="w-5 h-5 text-emerald-500" />
+          <span class="font-medium text-sm">Stock List</span>
+        </button>
+
+        <button
+          @click="navigateTo('/sales')"
+          class="flex items-center justify-center gap-2 p-3 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 hover:border-indigo-300 text-gray-700 dark:text-gray-200 rounded-lg shadow-sm transition"
+        >
+          <ClipboardDocumentListIcon class="w-5 h-5 text-orange-500" />
+          <span class="font-medium text-sm">History</span>
+        </button>
       </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
       <div
-        class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border-l-4 border-indigo-500 relative overflow-hidden"
+        class="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden"
       >
         <div class="flex justify-between items-start">
           <div>
-            <p
-              class="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider"
-            >
+            <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">
               Net Sales
             </p>
             <h3
-              class="text-3xl font-extrabold text-gray-800 dark:text-white mt-2"
+              class="text-2xl font-extrabold text-gray-800 dark:text-white mt-1"
             >
               {{ formatCurrency(data.metrics.range_sales) }}
             </h3>
           </div>
           <div
-            class="p-3 bg-indigo-50 dark:bg-indigo-900/30 rounded-full text-indigo-600"
+            class="p-2 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg text-indigo-600"
           >
-            <CurrencyBangladeshiIcon class="w-8 h-8" />
+            <CurrencyBangladeshiIcon class="w-6 h-6" />
           </div>
         </div>
-        <div class="mt-4 text-xs text-gray-400">
-          Gross Sales: {{ formatCurrency(data.metrics.range_gross_sales) }}
+        <div class="mt-3 text-[10px] text-gray-400 font-medium">
+          Gross: {{ formatCurrency(data.metrics.range_gross_sales) }}
         </div>
       </div>
 
       <div
         v-if="user.role === 'admin'"
-        class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border-l-4 border-emerald-500 relative overflow-hidden"
+        class="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden"
       >
         <div class="flex justify-between items-start">
           <div>
-            <p
-              class="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider"
-            >
+            <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">
               Net Profit
             </p>
             <h3
-              class="text-3xl font-extrabold mt-2"
+              class="text-2xl font-extrabold mt-1"
               :class="
                 data.metrics.range_profit >= 0
                   ? 'text-emerald-600'
@@ -197,27 +279,25 @@ onMounted(() => fetchData());
             </h3>
           </div>
           <div
-            class="p-3 bg-emerald-50 dark:bg-emerald-900/30 rounded-full text-emerald-600"
+            class="p-2 bg-emerald-50 dark:bg-emerald-900/30 rounded-lg text-emerald-600"
           >
-            <BanknotesIcon class="w-8 h-8" />
+            <BanknotesIcon class="w-6 h-6" />
           </div>
         </div>
-        <div class="mt-4 text-xs text-gray-400">
-          After deducting expenses & costs
+        <div class="mt-3 text-[10px] text-gray-400 font-medium">
+          Net Income after expenses
         </div>
       </div>
 
       <div
-        class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border-l-4 border-blue-500 relative overflow-hidden"
+        class="bg-white dark:bg-slate-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 relative overflow-hidden"
       >
         <div class="flex justify-between items-start mb-2">
           <div>
-            <p
-              class="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider"
-            >
+            <p class="text-xs font-bold text-gray-400 uppercase tracking-wider">
               Collection
             </p>
-            <h3 class="text-2xl font-bold text-gray-800 dark:text-white mt-1">
+            <h3 class="text-xl font-bold text-gray-800 dark:text-white mt-1">
               {{
                 formatCurrency(
                   data.metrics.range_cash + data.metrics.range_digital,
@@ -226,13 +306,13 @@ onMounted(() => fetchData());
             </h3>
           </div>
           <div
-            class="p-3 bg-blue-50 dark:bg-blue-900/30 rounded-full text-blue-600"
+            class="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg text-blue-600"
           >
-            <WalletIcon class="w-8 h-8" />
+            <WalletIcon class="w-6 h-6" />
           </div>
         </div>
 
-        <div class="space-y-3 mt-2">
+        <div class="space-y-2 mt-2">
           <div>
             <div class="flex justify-between text-[10px] mb-1">
               <span class="text-gray-500">Collected</span>
@@ -242,11 +322,9 @@ onMounted(() => fetchData());
                 )
               }}</span>
             </div>
-            <div
-              class="w-full bg-gray-100 rounded-full h-1.5 dark:bg-slate-700"
-            >
+            <div class="w-full bg-gray-100 rounded-full h-1 dark:bg-slate-700">
               <div
-                class="bg-blue-500 h-1.5 rounded-full"
+                class="bg-blue-500 h-1 rounded-full"
                 :style="{
                   width:
                     ((data.metrics.range_cash + data.metrics.range_digital) /
@@ -260,7 +338,7 @@ onMounted(() => fetchData());
           <div>
             <div class="flex justify-between text-[10px] mb-1">
               <span class="text-gray-500 flex items-center gap-1"
-                >Due Amount
+                >Due
                 <ExclamationTriangleIcon
                   v-if="data.metrics.range_due > 0"
                   class="w-3 h-3 text-orange-500"
@@ -269,11 +347,9 @@ onMounted(() => fetchData());
                 formatCurrency(data.metrics.range_due)
               }}</span>
             </div>
-            <div
-              class="w-full bg-gray-100 rounded-full h-1.5 dark:bg-slate-700"
-            >
+            <div class="w-full bg-gray-100 rounded-full h-1 dark:bg-slate-700">
               <div
-                class="bg-orange-400 h-1.5 rounded-full"
+                class="bg-orange-400 h-1 rounded-full"
                 :style="{
                   width:
                     (data.metrics.range_due / (data.metrics.range_sales || 1)) *
@@ -289,87 +365,88 @@ onMounted(() => fetchData());
 
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <div
-        class="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 flex flex-col items-center justify-center text-center hover:bg-gray-50 transition"
+        class="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-100 dark:border-slate-800 flex items-center gap-3 shadow-sm"
       >
-        <div class="p-2 bg-purple-50 text-purple-600 rounded-lg mb-2">
-          <DocumentTextIcon class="w-6 h-6" />
+        <div class="p-2 bg-purple-50 text-purple-600 rounded-md">
+          <DocumentTextIcon class="w-5 h-5" />
         </div>
-        <h4 class="text-2xl font-bold text-gray-800 dark:text-white">
-          {{ data.metrics.range_count }}
-        </h4>
-        <p class="text-xs text-gray-500 font-medium uppercase mt-1">
-          Total Invoices
-        </p>
+        <div>
+          <h4 class="text-lg font-bold text-gray-800 dark:text-white">
+            {{ data.metrics.range_count }}
+          </h4>
+          <p class="text-[10px] text-gray-500 uppercase font-bold">Invoices</p>
+        </div>
       </div>
 
       <div
-        class="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 flex flex-col items-center justify-center text-center hover:bg-orange-50/50 transition"
+        class="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-100 dark:border-slate-800 flex items-center gap-3 shadow-sm"
       >
-        <div class="p-2 bg-orange-50 text-orange-600 rounded-lg mb-2">
-          <TagIcon class="w-6 h-6" />
+        <div class="p-2 bg-orange-50 text-orange-600 rounded-md">
+          <TagIcon class="w-5 h-5" />
         </div>
-        <h4 class="text-2xl font-bold text-orange-600">
-          {{ formatCurrency(data.metrics.range_discount) }}
-        </h4>
-        <p class="text-xs text-gray-500 font-medium uppercase mt-1">
-          Total Discount
-        </p>
+        <div>
+          <h4 class="text-lg font-bold text-orange-600">
+            {{ formatCurrency(data.metrics.range_discount) }}
+          </h4>
+          <p class="text-[10px] text-gray-500 uppercase font-bold">Discount</p>
+        </div>
       </div>
 
       <div
-        class="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 flex flex-col items-center justify-center text-center hover:bg-rose-50/50 transition"
+        class="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-100 dark:border-slate-800 flex items-center gap-3 shadow-sm"
       >
-        <div class="p-2 bg-rose-50 text-rose-600 rounded-lg mb-2">
-          <ArrowPathIcon class="w-6 h-6" />
+        <div class="p-2 bg-rose-50 text-rose-600 rounded-md">
+          <ArrowPathIcon class="w-5 h-5" />
         </div>
-        <h4 class="text-2xl font-bold text-rose-600">
-          {{ formatCurrency(data.metrics.range_returns) }}
-        </h4>
-        <p class="text-xs text-gray-500 font-medium uppercase mt-1">
-          Total Returns
-        </p>
+        <div>
+          <h4 class="text-lg font-bold text-rose-600">
+            {{ formatCurrency(data.metrics.range_returns) }}
+          </h4>
+          <p class="text-[10px] text-gray-500 uppercase font-bold">Returns</p>
+        </div>
       </div>
 
       <div
         v-if="user.role === 'admin'"
-        class="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 flex flex-col items-center justify-center text-center hover:bg-gray-50 transition"
+        class="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-100 dark:border-slate-800 flex items-center gap-3 shadow-sm"
       >
-        <div class="p-2 bg-gray-100 text-gray-600 rounded-lg mb-2">
-          <CreditCardIcon class="w-6 h-6" />
+        <div class="p-2 bg-gray-100 text-gray-600 rounded-md">
+          <CreditCardIcon class="w-5 h-5" />
         </div>
-        <h4 class="text-2xl font-bold text-gray-700 dark:text-gray-300">
-          {{ formatCurrency(data.metrics.range_expenses) }}
-        </h4>
-        <p class="text-xs text-gray-500 font-medium uppercase mt-1">Expenses</p>
+        <div>
+          <h4 class="text-lg font-bold text-gray-700 dark:text-gray-300">
+            {{ formatCurrency(data.metrics.range_expenses) }}
+          </h4>
+          <p class="text-[10px] text-gray-500 uppercase font-bold">Expenses</p>
+        </div>
       </div>
-
       <div
         v-else
-        class="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 flex flex-col items-center justify-center text-center hover:bg-red-50 transition"
+        class="bg-white dark:bg-slate-900 p-3 rounded-lg border border-gray-100 dark:border-slate-800 flex items-center gap-3 shadow-sm"
       >
-        <div class="p-2 bg-red-50 text-red-600 rounded-lg mb-2">
-          <ExclamationTriangleIcon class="w-6 h-6" />
+        <div class="p-2 bg-red-50 text-red-600 rounded-md">
+          <ExclamationTriangleIcon class="w-5 h-5" />
         </div>
-        <h4 class="text-2xl font-bold text-red-600">
-          {{ data.inventory.low_stock }}
-        </h4>
-        <p class="text-xs text-gray-500 font-medium uppercase mt-1">
-          Low Stock
-        </p>
+        <div>
+          <h4 class="text-lg font-bold text-red-600">
+            {{ data.inventory.low_stock }}
+          </h4>
+          <p class="text-[10px] text-gray-500 uppercase font-bold">Low Stock</p>
+        </div>
       </div>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div
-        class="lg:col-span-2 bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800"
+        class="lg:col-span-2 bg-white dark:bg-slate-900 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800"
       >
         <h3
-          class="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2 mb-6"
+          class="text-sm font-bold text-gray-800 dark:text-white flex items-center gap-2 mb-4"
         >
-          <PresentationChartLineIcon class="w-5 h-5 text-gray-400" />
+          <PresentationChartLineIcon class="w-4 h-4 text-gray-400" />
           Business Trends
         </h3>
-        <div class="h-[350px] w-full">
+        <div class="h-[300px] w-full">
           <VueApexCharts
             type="area"
             height="100%"
@@ -382,25 +459,23 @@ onMounted(() => fetchData());
       <div class="space-y-6">
         <div
           v-if="user.role === 'admin'"
-          class="bg-gradient-to-br from-indigo-600 to-indigo-800 p-6 rounded-2xl shadow-lg text-white relative overflow-hidden"
+          class="bg-gradient-to-br from-indigo-600 to-indigo-800 p-5 rounded-xl shadow-lg text-white relative overflow-hidden"
         >
           <CubeIcon
-            class="absolute -bottom-4 -right-4 w-32 h-32 text-white opacity-10"
+            class="absolute -bottom-4 -right-4 w-28 h-28 text-white opacity-10"
           />
-          <p class="text-indigo-100 text-sm font-medium">
-            Total Inventory Asset
+          <p
+            class="text-indigo-100 text-xs font-medium uppercase tracking-wider"
+          >
+            Inventory Asset
           </p>
-          <h3 class="text-3xl font-extrabold mt-2">
+          <h3 class="text-2xl font-extrabold mt-1">
             {{ formatCurrency(data.overall.inventory_value) }}
           </h3>
-
           <div
-            class="mt-6 pt-4 border-t border-white/10 flex justify-between items-center text-sm"
+            class="mt-4 pt-3 border-t border-white/10 flex justify-between items-center text-xs"
           >
-            <span class="flex items-center gap-2"
-              ><ExclamationTriangleIcon class="w-4 h-4 text-orange-300" />
-              Damaged Value:</span
-            >
+            <span class="flex items-center gap-1 opacity-80">Damaged:</span>
             <span class="font-bold">{{
               formatCurrency(data.overall.damaged_stock_value)
             }}</span>
@@ -408,15 +483,15 @@ onMounted(() => fetchData());
         </div>
 
         <div
-          class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden flex flex-col"
+          class="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-hidden flex flex-col"
         >
           <div
-            class="p-5 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center"
+            class="p-4 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center"
           >
             <h3
-              class="font-bold text-gray-800 dark:text-white flex items-center gap-2"
+              class="font-bold text-gray-800 dark:text-white flex items-center gap-2 text-sm"
             >
-              <ExclamationTriangleIcon class="w-5 h-5 text-rose-500" /> Critical
+              <ExclamationTriangleIcon class="w-4 h-4 text-rose-500" /> Critical
               Stock
             </h3>
           </div>
@@ -424,15 +499,15 @@ onMounted(() => fetchData());
             <div
               v-for="p in data.low_stock_list"
               :key="p.id"
-              class="flex items-center gap-3 p-4 border-b border-gray-50 dark:border-slate-800 last:border-0 hover:bg-rose-50/20 transition"
+              class="flex items-center gap-3 p-3 border-b border-gray-50 dark:border-slate-800 last:border-0 hover:bg-rose-50/20 transition"
             >
               <img
                 :src="getImageUrl(p.image)"
-                class="w-10 h-10 rounded-lg border dark:border-slate-700 object-cover"
+                class="w-8 h-8 rounded-lg border dark:border-slate-700 object-cover"
               />
               <div class="flex-1 min-w-0">
                 <h4
-                  class="text-sm font-bold text-gray-800 dark:text-gray-200 truncate"
+                  class="text-xs font-bold text-gray-800 dark:text-gray-200 truncate"
                 >
                   {{ p.name }}
                 </h4>
@@ -441,7 +516,7 @@ onMounted(() => fetchData());
                 >
               </div>
               <div class="text-right">
-                <span class="text-lg font-bold text-rose-600">{{
+                <span class="text-sm font-bold text-rose-600">{{
                   p.stock_quantity
                 }}</span>
                 <span class="text-[9px] text-gray-400 block">LEFT</span>
@@ -458,57 +533,135 @@ onMounted(() => fetchData());
       </div>
     </div>
 
-    <div
-      class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden"
-    >
-      <div class="p-5 border-b border-gray-100 dark:border-slate-800">
-        <h3
-          class="font-bold text-gray-800 dark:text-white flex items-center gap-2"
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div
+        class="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-hidden flex flex-col"
+      >
+        <div
+          class="p-4 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center"
         >
-          <ShoppingBagIcon class="w-5 h-5 text-indigo-500" /> Top Selling
-          Products
-        </h3>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-sm">
-          <thead
-            class="bg-gray-50 dark:bg-slate-800 text-gray-500 uppercase text-xs"
+          <h3
+            class="font-bold text-gray-800 dark:text-white flex items-center gap-2 text-sm"
           >
-            <tr>
-              <th class="px-6 py-3">Product</th>
-              <th class="px-6 py-3 text-right">Sold Qty</th>
-              <th class="px-6 py-3 text-right">Current Stock</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100 dark:divide-slate-800">
-            <tr
-              v-for="p in data.top_products"
-              :key="p.id"
-              class="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition"
+            <ClockIcon class="w-4 h-4 text-indigo-500" /> Recent Invoices
+          </h3>
+          <button
+            @click="navigateTo('/sales')"
+            class="text-[10px] font-bold text-indigo-600 hover:underline uppercase"
+          >
+            View All
+          </button>
+        </div>
+        <div class="flex-1 overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead
+              class="bg-gray-50 dark:bg-slate-800 text-gray-500 uppercase text-[10px]"
             >
-              <td class="px-6 py-4 flex items-center gap-3">
-                <img
-                  :src="getImageUrl(p.image)"
-                  class="w-10 h-10 rounded-lg border dark:border-slate-700 object-cover"
-                />
-                <span class="font-bold text-gray-700 dark:text-gray-200">{{
-                  p.name
-                }}</span>
-              </td>
-              <td class="px-6 py-4 text-right font-bold text-indigo-600">
-                {{ p.total_sold }}
-              </td>
-              <td class="px-6 py-4 text-right text-gray-500">
-                {{ p.stock_quantity }}
-              </td>
-            </tr>
-            <tr v-if="data.top_products.length === 0">
-              <td colspan="3" class="p-8 text-center text-gray-400">
-                No sales record found for this period.
-              </td>
-            </tr>
-          </tbody>
-        </table>
+              <tr>
+                <th class="px-4 py-2">Invoice</th>
+                <th class="px-4 py-2">Customer</th>
+                <th class="px-4 py-2 text-right">Amount</th>
+                <th class="px-4 py-2 text-right">Status</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-slate-800">
+              <tr
+                v-for="sale in data.recent_sales"
+                :key="sale.id"
+                class="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition"
+              >
+                <td
+                  class="px-4 py-2 font-medium text-gray-700 dark:text-gray-200"
+                >
+                  {{ sale.invoice_no }}
+                  <span class="block text-[9px] text-gray-400 font-normal">{{
+                    sale.time
+                  }}</span>
+                </td>
+                <td class="px-4 py-2 text-gray-600 dark:text-gray-400">
+                  {{ sale.customer }}
+                </td>
+                <td
+                  class="px-4 py-2 text-right font-bold text-gray-800 dark:text-white"
+                >
+                  {{ formatCurrency(sale.amount) }}
+                </td>
+                <td class="px-4 py-2 text-right">
+                  <span
+                    class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
+                    :class="
+                      sale.status === 'paid'
+                        ? 'bg-emerald-100 text-emerald-600'
+                        : 'bg-orange-100 text-orange-600'
+                    "
+                  >
+                    {{ sale.status }}
+                  </span>
+                </td>
+              </tr>
+              <tr v-if="!data.recent_sales || data.recent_sales.length === 0">
+                <td colspan="4" class="p-6 text-center text-xs text-gray-400">
+                  No recent transactions.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div
+        class="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-hidden flex flex-col"
+      >
+        <div class="p-4 border-b border-gray-100 dark:border-slate-800">
+          <h3
+            class="font-bold text-gray-800 dark:text-white flex items-center gap-2 text-sm"
+          >
+            <ShoppingBagIcon class="w-4 h-4 text-purple-500" /> Top Selling
+            Items
+          </h3>
+        </div>
+        <div class="flex-1 overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead
+              class="bg-gray-50 dark:bg-slate-800 text-gray-500 uppercase text-[10px]"
+            >
+              <tr>
+                <th class="px-4 py-2">Product</th>
+                <th class="px-4 py-2 text-right">Sold</th>
+                <th class="px-4 py-2 text-right">Stock</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-slate-800">
+              <tr
+                v-for="p in data.top_products"
+                :key="p.id"
+                class="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition"
+              >
+                <td class="px-4 py-2 flex items-center gap-2">
+                  <img
+                    :src="getImageUrl(p.image)"
+                    class="w-6 h-6 rounded border dark:border-slate-700 object-cover"
+                  />
+                  <span
+                    class="font-bold text-gray-700 dark:text-gray-200 text-xs"
+                    >{{ p.name }}</span
+                  >
+                </td>
+                <td class="px-4 py-2 text-right font-bold text-indigo-600">
+                  {{ p.total_sold }}
+                </td>
+                <td class="px-4 py-2 text-right text-gray-500">
+                  {{ p.stock_quantity }}
+                </td>
+              </tr>
+              <tr v-if="data.top_products.length === 0">
+                <td colspan="3" class="p-8 text-center text-gray-400">
+                  No sales record found.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>

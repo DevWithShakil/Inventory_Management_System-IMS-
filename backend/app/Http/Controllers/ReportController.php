@@ -7,7 +7,6 @@ use App\Models\Sale;
 use App\Models\Purchase;
 use App\Models\Product;
 use App\Models\SalesReturn;
-use App\Models\Customer;
 use App\Models\Expense;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
@@ -17,7 +16,7 @@ use Illuminate\Support\Facades\Log;
 class ReportController extends Controller
 {
     /**
-     * Main Dashboard Overview API
+     * Dashboard Overview API
      * Handles logic for Admin vs Staff views
      */
     public function dashboardOverview(Request $request)
@@ -60,34 +59,46 @@ class ReportController extends Controller
         $startStr = $startDate->format('Y-m-d H:i:s');
         $endStr = $endDate->format('Y-m-d H:i:s');
 
-        // --- 2. Base Metrics (Visible to EVERYONE) ---
+        // --- 2. Query Builder (Role Based Filtering) ---
 
-        // Gross Sales
-        $grossSales = Sale::whereBetween('date', [$startStr, $endStr])->sum('grand_total');
+        // Sales Query Base
+        $salesQuery = Sale::whereBetween('date', [$startStr, $endStr]);
 
-        // 🔥 Total Discount (Newly Added)
-        $totalDiscount = Sale::whereBetween('date', [$startStr, $endStr])->sum('discount');
+        // Refunds Query Base
+        $refundQuery = SalesReturn::whereBetween('date', [$startStr, $endStr]);
+
+        // 🔥 STAFF FILTER: Metrics এর জন্য
+        if ($user->role === 'staff') {
+            $salesQuery->where('created_by', $user->id);
+            $refundQuery->where('created_by', $user->id);
+        }
+
+        // --- 3. Base Metrics Calculation (Visible to EVERYONE) ---
+
+        // Gross Sales (Using clone to reuse the filtered query)
+        $grossSales = (clone $salesQuery)->sum('grand_total');
+
+        // Total Discount
+        $totalDiscount = (clone $salesQuery)->sum('discount');
 
         // Total Refunds
-        $totalRefunds = SalesReturn::whereBetween('date', [$startStr, $endStr])->sum('refund_amount');
+        $totalRefunds = $refundQuery->sum('refund_amount');
 
-        // Net Sales
+        // Net Sales (Gross - Returns)
         $netSales = $grossSales - $totalRefunds;
 
-        // Invoice Counts & Payment Breakdown
-        $invoiceCount = Sale::whereBetween('date', [$startStr, $endStr])->count();
+        // Invoice Counts
+        $invoiceCount = (clone $salesQuery)->count();
 
-        $cashSale = Sale::whereBetween('date', [$startStr, $endStr])
-                        ->where('payment_method', 'cash')->sum('paid_amount');
-
-        $digitalSale = Sale::whereBetween('date', [$startStr, $endStr])
-                           ->where('payment_method', '!=', 'cash')->sum('paid_amount');
+        // Payment Breakdown
+        $cashSale = (clone $salesQuery)->where('payment_method', 'cash')->sum('paid_amount');
+        $digitalSale = (clone $salesQuery)->where('payment_method', '!=', 'cash')->sum('paid_amount');
 
         // Calculate Range Specific Due
         $totalCollectedInRange = $cashSale + $digitalSale;
         $rangeDue = max(0, $netSales - $totalCollectedInRange);
 
-        // --- 3. Sensitive Metrics (Profit, Cost, Expense) - ADMIN ONLY ---
+        // --- 4. Sensitive Metrics (Profit, Cost, Expense) - ADMIN ONLY ---
         $actualCOGS = 0;
         $totalExpenses = 0;
         $netProfit = 0;
@@ -133,10 +144,10 @@ class ReportController extends Controller
             $purchases = Purchase::whereBetween('date', [$startStr, $endStr])->sum('grand_total');
         }
 
-        // --- 4. Chart Data ---
-        $chartData = $this->generateChartData($startDate, $endDate, $range, $user->role);
+        // --- 5. Chart Data ---
+        $chartData = $this->generateChartData($startDate, $endDate, $range, $user);
 
-        // --- 5. Overall Stats ---
+        // --- 6. Overall Stats ---
         $overallStats = [
             'total_due' => round(Sale::sum('due_amount'), 2),
             'total_collected' => round(Sale::sum('paid_amount'), 2),
@@ -147,6 +158,25 @@ class ReportController extends Controller
             $overallStats['damaged_stock_value'] = round($damagedValue, 2);
         }
 
+        // --- 🔥 7. RECENT SALES (New Section) ---
+        // Staff will see their own last 5 sales, Admin will see global last 5 sales
+        $recentSalesQuery = Sale::with('customer:id,name')->latest();
+
+        if ($user->role === 'staff') {
+            $recentSalesQuery->where('created_by', $user->id);
+        }
+
+        $recentSales = $recentSalesQuery->take(5)->get()->map(function($sale) {
+            return [
+                'id' => $sale->id,
+                'invoice_no' => $sale->invoice_no,
+                'customer' => $sale->customer ? $sale->customer->name : 'Walk-in Customer',
+                'amount' => $sale->grand_total,
+                'status' => $sale->payment_status, // e.g., 'paid', 'due'
+                'time' => Carbon::parse($sale->created_at)->diffForHumans() // e.g., "5 mins ago"
+            ];
+        });
+
         return response()->json([
             'status' => true,
             'data' => [
@@ -155,10 +185,7 @@ class ReportController extends Controller
                     'range_gross_sales' => round($grossSales, 2),
                     'range_sales' => round($netSales, 2),
                     'range_returns' => round($totalRefunds, 2),
-
-                    // 🔥 Discount Added Here
                     'range_discount' => round($totalDiscount, 2),
-
                     'range_count' => $invoiceCount,
                     'range_cash' => round($cashSale, 2),
                     'range_digital' => round($digitalSale, 2),
@@ -177,7 +204,11 @@ class ReportController extends Controller
                     'low_stock' => Product::whereColumn('stock_quantity', '<=', 'alert_quantity')->count(),
                 ],
                 'chart' => $chartData,
-                'top_products' => $this->getTopProducts($startDate, $endDate),
+                'top_products' => $this->getTopProducts($startDate, $endDate, $user),
+
+                // 🔥 New Data Added to Response
+                'recent_sales' => $recentSales,
+
                 'low_stock_list' => $this->getLowStockList(),
                 'filter_label' => ucfirst(str_replace('_', ' ', $range))
             ]
@@ -213,12 +244,18 @@ class ReportController extends Controller
         return response()->json(['status' => true, 'data' => $report]);
     }
 
-    private function getTopProducts($startDate, $endDate) {
-        return DB::table('sale_items')
+    private function getTopProducts($startDate, $endDate, $user = null) {
+        $query = DB::table('sale_items')
             ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
             ->join('products', 'products.id', '=', 'sale_items.product_id')
-            ->whereBetween('sales.date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
-            ->select('products.name', 'products.image', 'products.stock_quantity', DB::raw('SUM(sale_items.quantity) as total_sold'))
+            ->whereBetween('sales.date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')]);
+
+        // Filter Top Products by Staff if needed
+        if ($user && $user->role === 'staff') {
+            $query->where('sales.created_by', $user->id);
+        }
+
+        return $query->select('products.name', 'products.image', 'products.stock_quantity', DB::raw('SUM(sale_items.quantity) as total_sold'))
             ->groupBy('products.id', 'products.name', 'products.image', 'products.stock_quantity')
             ->orderByDesc('total_sold')
             ->limit(5)->get();
@@ -230,43 +267,45 @@ class ReportController extends Controller
             ->take(5)->get();
     }
 
-    private function generateChartData($startDate, $endDate, $range, $role)
+    private function generateChartData($startDate, $endDate, $range, $user)
     {
         $categories = [];
         $netRevenues = [];
         $netCosts = [];
 
         $driver = DB::connection()->getDriverName();
+        $role = $user->role;
 
-        // Determine Date Format based on DB Driver and Range
+        // Date Format Logic
         if ($range === 'today' || $range === 'yesterday') {
-             // For hourly data, we group by hour
              $dateFormat = ($driver === 'pgsql') ? "EXTRACT(HOUR FROM created_at)" : "EXTRACT(HOUR FROM created_at)";
         } else {
-             // For daily data
              $dateFormat = ($driver === 'pgsql') ? "CAST(date AS DATE)" : "DATE(date)";
         }
 
-        // 1. Fetch Sales Data
-        $salesData = Sale::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
-            ->selectRaw("$dateFormat as key_date, SUM(grand_total) as total")
+        // 1. Fetch Sales Data (Filtered by Role)
+        $salesQuery = Sale::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')]);
+        if ($role === 'staff') {
+            $salesQuery->where('created_by', $user->id);
+        }
+        $salesData = $salesQuery->selectRaw("$dateFormat as key_date, SUM(grand_total) as total")
             ->groupBy('key_date')
             ->pluck('total', 'key_date');
 
-        // 2. Fetch Refunds Data
-        $refundData = SalesReturn::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
-            ->selectRaw("$dateFormat as key_date, SUM(refund_amount) as total")
+        // 2. Fetch Refunds Data (Filtered by Role)
+        $refundQuery = SalesReturn::whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')]);
+        if ($role === 'staff') {
+            $refundQuery->where('created_by', $user->id);
+        }
+        $refundData = $refundQuery->selectRaw("$dateFormat as key_date, SUM(refund_amount) as total")
             ->groupBy('key_date')
             ->pluck('total', 'key_date');
 
-        // 3. Fetch Cost Data (Only if Admin)
+        // 3. Fetch Cost Data (Admin Only)
         $costData = collect([]);
-        $restockData = collect([]);
-
         if ($role === 'admin') {
             $costDateCol = ($range === 'today' || $range === 'yesterday') ? 'sales.created_at' : 'sales.date';
 
-            // Need to handle DB driver specific formatting for joins
             if ($range === 'today' || $range === 'yesterday') {
                  $costDateFormat = ($driver === 'pgsql') ? "EXTRACT(HOUR FROM $costDateCol)" : "EXTRACT(HOUR FROM $costDateCol)";
             } else {
@@ -282,10 +321,8 @@ class ReportController extends Controller
                 ->pluck('total', 'key_date');
         }
 
-        // --- Data Filling Logic ---
-
+        // --- Data Filling Loop ---
         if ($range === 'today' || $range === 'yesterday') {
-            // Hourly Loop (0 to 23)
             for ($i = 0; $i <= 23; $i++) {
                 $categories[] = Carbon::createFromTime($i, 0)->format('h A');
 
@@ -298,34 +335,8 @@ class ReportController extends Controller
                     $netCosts[] = $cogs;
                 }
             }
-        } elseif ($range === 'all_time') {
-            // Simplify All Time to last 12 months for better chart view
-             $months = Sale::selectRaw("DATE_FORMAT(date, '%Y-%m') as key_date")
-                            ->groupBy('key_date')
-                            ->orderBy('key_date', 'asc')
-                            ->limit(12)
-                            ->pluck('key_date');
-
-             // This part can be complex for copy-paste, so defaulting to date loop logic for safety
-             // or you can stick to a simpler logic.
-             // Let's use the Period Loop as it's safer for "Last 7 days", "This Month" etc.
-             $period = CarbonPeriod::create($startDate, $endDate);
-             foreach ($period as $date) {
-                $dayKey = $date->format('Y-m-d');
-                $categories[] = $date->format('d M');
-
-                $gross = $salesData[$dayKey] ?? 0;
-                $refund = $refundData[$dayKey] ?? 0;
-                $netRevenues[] = max(0, $gross - $refund);
-
-                if ($role === 'admin') {
-                    $cogs = $costData[$dayKey] ?? 0;
-                    $netCosts[] = $cogs;
-                }
-             }
-
         } else {
-            // Standard Date Loop (Last 7 days, This Month, etc)
+            // Standard Daily Loop
             $period = CarbonPeriod::create($startDate, $endDate);
             foreach ($period as $date) {
                 $dayKey = $date->format('Y-m-d');
@@ -336,7 +347,6 @@ class ReportController extends Controller
                 $netRevenues[] = max(0, $gross - $refund);
 
                 if ($role === 'admin') {
-                    // For daily data, key is Y-m-d
                     $cogs = $costData[$dayKey] ?? 0;
                     $netCosts[] = $cogs;
                 }
