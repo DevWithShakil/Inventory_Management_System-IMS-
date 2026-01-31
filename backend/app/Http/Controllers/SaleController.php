@@ -74,145 +74,145 @@ class SaleController extends Controller
         }
     }
 
-    public function store(Request $request)
-    {
-        $request->validate([
-            'customer_id'    => 'nullable|exists:customers,id',
-            'redeem_amount'  => 'nullable|integer|min:0',
-            'coupon_code'    => 'nullable|string|exists:coupons,code',
-            'items'          => 'required|array|min:1',
-            'items.*.product_id' => 'required|exists:products,id',
-            'items.*.quantity'   => 'required|integer|min:1',
-            'items.*.unit_price' => 'required|numeric|min:0',
-            'paid_amount'    => 'required|numeric|min:0',
-            'payment_method' => 'required|string',
+  public function store(Request $request)
+{
+    $request->validate([
+        'customer_id'    => 'nullable|exists:customers,id',
+        'redeem_amount'  => 'nullable|integer|min:0',
+        'coupon_code'    => 'nullable|string|exists:coupons,code',
+        'items'          => 'required|array|min:1',
+        'items.*.product_id' => 'required|exists:products,id',
+        'items.*.quantity'   => 'required|integer|min:1',
+        'items.*.unit_price' => 'required|numeric|min:0',
+        'paid_amount'    => 'required|numeric|min:0',
+        'payment_method' => 'required|string',
+    ]);
+
+    try {
+        DB::beginTransaction();
+
+        $subtotal = 0;
+        $itemsToInsert = [];
+        foreach ($request->items as $item) {
+            $product = Product::find($item['product_id']);
+
+            if (!$product || $product->stock_quantity < $item['quantity']) {
+                throw new \Exception("Stock error for product: " . ($product->name ?? 'Unknown'));
+            }
+
+            $lineTotal = $item['quantity'] * $item['unit_price'];
+            $subtotal += $lineTotal;
+
+            $itemsToInsert[] = [
+                'product_obj' => $product,
+                'product_id'  => $item['product_id'],
+                'quantity'    => $item['quantity'],
+                'unit_price'  => $item['unit_price'],
+                'subtotal'    => $lineTotal
+            ];
+        }
+        $pointsUsed = 0;
+        $customer = null;
+
+        if ($request->customer_id) {
+            $customer = Customer::find($request->customer_id);
+            $redeemAmount = $request->redeem_amount ?? 0;
+
+            if ($customer && $redeemAmount > 0) {
+                if ($customer->reward_points < $redeemAmount) {
+                        throw new \Exception("Insufficient points! You have: " . $customer->reward_points);
+                }
+
+                $maxRedeemable = floor($subtotal * 0.25);
+
+                if ($redeemAmount > $maxRedeemable) {
+                    throw new \Exception("Max redeemable points: {$maxRedeemable}");
+                }
+
+                $pointsUsed = $redeemAmount;
+            }
+        }
+
+        $coupon = null;
+        if ($request->coupon_code) {
+            $coupon = Coupon::where('code', $request->coupon_code)->first();
+
+            if (!$coupon) throw new \Exception("Invalid coupon code.");
+            if ($coupon->expires_at && now()->gt($coupon->expires_at)) throw new \Exception("Coupon has expired.");
+            if ($coupon->usage_limit > 0 && $coupon->used_count >= $coupon->usage_limit) throw new \Exception("Coupon usage limit reached.");
+            if ($subtotal < $coupon->min_purchase) throw new \Exception("Min purchase: {$coupon->min_purchase}");
+        }
+
+
+        $couponDiscount = $request->discount ?? 0;
+        $totalDiscount = $couponDiscount + $pointsUsed;
+        $tax = $request->tax ?? 0;
+        $grandTotal = ($subtotal + $tax) - $totalDiscount;
+
+        if ($grandTotal < 0) $grandTotal = 0;
+
+        $dueAmount = $grandTotal - $request->paid_amount;
+        $paymentStatus = $dueAmount <= 0 ? 'paid' : ($request->paid_amount > 0 ? 'partial' : 'due');
+
+        $sale = Sale::create([
+            'customer_id'    => $request->customer_id,
+            'invoice_no'     => 'INV-' . time() . rand(10,99),
+            'date'           => $request->date ?? now(),
+            'subtotal'       => $subtotal,
+            'discount'       => $totalDiscount,
+            'tax'            => $tax,
+            'grand_total'    => $grandTotal,
+            'paid_amount'    => $request->paid_amount,
+            'due_amount'     => $dueAmount,
+            'payment_method' => $request->payment_method,
+            'payment_status' => $paymentStatus,
+            'created_by'     => auth()->id() ?? 1,
+            'redeemed_points' => $pointsUsed,
         ]);
 
-        try {
-            DB::beginTransaction();
+        if ($dueAmount > 0 && $customer) {
+            $customer->increment('balance', $dueAmount);
+        }
 
-            $subtotal = 0;
-            $itemsToInsert = [];
-
-            foreach ($request->items as $item) {
-                $product = Product::find($item['product_id']);
-                if (!$product || $product->stock_quantity < $item['quantity']) {
-                    throw new \Exception("Stock error for product ID: " . $item['product_id']);
-                }
-
-                $lineTotal = $item['quantity'] * $item['unit_price'];
-                $subtotal += $lineTotal;
-
-                $itemsToInsert[] = [
-                    'product_obj' => $product,
-                    'product_id'  => $item['product_id'],
-                    'quantity'    => $item['quantity'],
-                    'unit_price'  => $item['unit_price'],
-                    'subtotal'    => $lineTotal
-                ];
-            }
-
-            $pointsUsed = 0;
-            $customer = null;
-
-            if ($request->customer_id) {
-                $customer = Customer::find($request->customer_id);
-                $redeemAmount = $request->redeem_amount ?? 0;
-
-                if ($customer && $redeemAmount > 0) {
-                    if ($customer->reward_points < $redeemAmount) {
-                         throw new \Exception("Insufficient points! You have: " . $customer->reward_points);
-                    }
-
-                    $maxRedeemable = floor($subtotal * 0.25);
-
-                    if ($redeemAmount > $maxRedeemable) {
-                        throw new \Exception("Max redeemable points: {$maxRedeemable}");
-                    }
-
-                    $pointsUsed = $redeemAmount;
-                }
-            }
-
-            $coupon = null;
-            if ($request->coupon_code) {
-                $coupon = Coupon::where('code', $request->coupon_code)->first();
-
-                if (!$coupon) throw new \Exception("Invalid coupon code.");
-                if ($coupon->expires_at && now()->gt($coupon->expires_at)) throw new \Exception("Coupon has expired.");
-                if ($coupon->usage_limit > 0 && $coupon->used_count >= $coupon->usage_limit) throw new \Exception("Coupon usage limit reached.");
-                if ($subtotal < $coupon->min_purchase) throw new \Exception("Min purchase: {$coupon->min_purchase}");
-            }
-
-            $couponDiscount = $request->discount ?? 0;
-            $totalDiscount = $couponDiscount + $pointsUsed;
-            $tax = $request->tax ?? 0;
-            $grandTotal = ($subtotal + $tax) - $totalDiscount;
-
-            if ($grandTotal < 0) $grandTotal = 0;
-
-            $dueAmount = $grandTotal - $request->paid_amount;
-            $paymentStatus = $dueAmount <= 0 ? 'paid' : ($request->paid_amount > 0 ? 'partial' : 'due');
-
-            $sale = Sale::create([
-                'customer_id'    => $request->customer_id,
-                'invoice_no'     => 'INV-' . time() . rand(10,99),
-                'date'           => $request->date ?? now(),
-                'subtotal'       => $subtotal,
-                'discount'       => $totalDiscount,
-                'tax'            => $tax,
-                'grand_total'    => $grandTotal,
-                'paid_amount'    => $request->paid_amount,
-                'due_amount'     => $dueAmount,
-                'payment_method' => $request->payment_method,
-                'payment_status' => $paymentStatus,
-                'created_by'     => auth()->id() ?? 1,
-                'redeemed_points' => $pointsUsed,
+        foreach ($itemsToInsert as $itemData) {
+            SaleItem::create([
+                'sale_id'    => $sale->id,
+                'product_id' => $itemData['product_id'],
+                'quantity'   => $itemData['quantity'],
+                'unit_price' => $itemData['unit_price'],
+                'subtotal'   => $itemData['subtotal']
             ]);
+            $itemData['product_obj']->decrement('stock_quantity', $itemData['quantity']);
+        }
 
-if ($request->due_amount > 0) {
-    $customer = Customer::find($request->customer_id);
-    if ($customer) {
-        $customer->increment('balance', $request->due_amount);
+        if ($customer) {
+            if ($pointsUsed > 0) {
+                $customer->decrement('reward_points', $pointsUsed);
+            }
+
+            $newPoints = floor($grandTotal / 100);
+            if ($newPoints > 0) {
+                $customer->increment('reward_points', $newPoints);
+            }
+            $customer->increment('total_spent', $grandTotal);
+        }
+        if ($coupon) $coupon->increment('used_count');
+
+        DB::commit();
+        $sale->load(['customer', 'sale_items.product']);
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Sale created successfully!',
+            'data' => $sale
+        ], 201);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        Log::error('Sale Store Error: ' . $e->getMessage());
+        return response()->json(['status' => false, 'message' => $e->getMessage()], 400);
     }
 }
-
-            foreach ($itemsToInsert as $itemData) {
-                SaleItem::create([
-                    'sale_id'    => $sale->id,
-                    'product_id' => $itemData['product_id'],
-                    'quantity'   => $itemData['quantity'],
-                    'unit_price' => $itemData['unit_price'],
-                    'subtotal'   => $itemData['subtotal']
-                ]);
-                $itemData['product_obj']->decrement('stock_quantity', $itemData['quantity']);
-            }
-
-            if ($customer) {
-                if ($pointsUsed > 0) {
-                    $customer->decrement('reward_points', $pointsUsed);
-                }
-
-                $newPoints = floor($grandTotal / 100);
-                if ($newPoints > 0) {
-                    $customer->increment('reward_points', $newPoints);
-                }
-
-                $customer->increment('total_spent', $grandTotal);
-            }
-
-            if ($coupon) $coupon->increment('used_count');
-
-            DB::commit();
-
-            return response()->json(['status' => true, 'message' => 'Sale created!', 'data' => $sale], 201);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Sale Store Error: ' . $e->getMessage());
-            return response()->json(['status' => false, 'message' => $e->getMessage()], 400);
-        }
-    }
 
     public function show($id)
     {

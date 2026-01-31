@@ -56,14 +56,17 @@ const fetchTransaction = async (id) => {
   }
 };
 
-// 4. Date Formatter (UTC to Local Time)
+// 4. 🔥 Date Formatter (UTC to Local Time Fix)
 const formatDate = (dateString) => {
   if (!dateString) return "";
+
+  // Create date object from UTC string
   const date = new Date(dateString);
 
   // Invalid date check
   if (isNaN(date.getTime())) return dateString;
 
+  // Convert to local readable format with Time
   return date.toLocaleString("en-US", {
     year: "numeric",
     month: "short",
@@ -196,7 +199,8 @@ const handlePrint = async (mode) => {
                   printMode === 'thermal' ? 'text-[10px]' : 'text-xs mt-1'
                 "
               >
-                Date: {{ formatDate(transaction.date) }}
+                Date:
+                {{ formatDate(transaction.created_at || transaction.date) }}
               </p>
             </div>
           </div>
@@ -321,7 +325,7 @@ const handlePrint = async (mode) => {
                       v-if="printMode !== 'thermal'"
                     >
                       <p class="line-clamp-2 text-xs">
-                        {{ inv.products || "General Due" }}
+                        {{ inv.products || "Purchase Payment" }}
                       </p>
                     </td>
 

@@ -4,14 +4,11 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Supplier;
+use App\Models\Transaction; // 🔥 Transaction মডেল ইম্পোর্ট করা হয়েছে
 use Illuminate\Support\Facades\Log;
-
 
 class SupplierController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
     public function index()
     {
         return response()->json([
@@ -21,12 +18,9 @@ class SupplierController extends Controller
         ], 200);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     */
     public function store(Request $request)
     {
-       $request->validate([
+        $request->validate([
             'name' => 'required|string|max:255',
             'phone' => 'required|string|max:20|unique:suppliers,phone',
             'email' => 'nullable|email|max:255|unique:suppliers,email',
@@ -35,103 +29,79 @@ class SupplierController extends Controller
 
         try {
             $supplier = Supplier::create($request->all());
-
             return response()->json([
                 'status' => true,
                 'message' => 'Supplier created successfully',
                 'data' => $supplier
             ], 201);
-
         } catch (\Exception $e) {
             Log::error('Supplier Creation Error: ' . $e->getMessage());
-            return response()->json([
-                'status' => false,
-                'message' => 'Something went wrong while creating supplier.'
-            ], 500);
+            return response()->json(['status' => false, 'message' => 'Something went wrong.'], 500);
         }
     }
 
-    /**
-     * Display the specified resource.
-     */
     public function show(string $id)
     {
         try {
             $supplier = Supplier::findOrFail($id);
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Supplier retrieved successfully',
-                'data' => $supplier
-            ]);
+            return response()->json(['status' => true, 'data' => $supplier]);
         } catch (\Exception $e) {
-            Log::error('Supplier Fetch Error: ' . $e->getMessage());
-            return response()->json([
-                'status' => false,
-                'message' => 'Supplier not found.'
-            ], 404);
+            return response()->json(['status' => false, 'message' => 'Supplier not found.'], 404);
         }
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
     public function update(Request $request, string $id)
     {
         try {
             $supplier = Supplier::findOrFail($id);
-            if (!$supplier) return response()->json([
-                'status' => false,
-                'message' => 'Supplier not found'
-            ], 404);
-
             $request->validate([
                 'name' => 'required|string|max:255',
                 'email' => 'nullable|email|max:255|unique:suppliers,email,' . $id,
                 'phone' => 'required|string|max:20|unique:suppliers,phone,' . $id,
                 'shop_name' => 'nullable|string|max:255',
-                'address' => 'nullable|string|max:255',
             ]);
 
             $supplier->update($request->all());
-            return response()->json([
-                'status' => true,
-                'message' => 'Supplier updated successfully',
-                'data' => $supplier
-            ]);
+            return response()->json(['status' => true, 'message' => 'Supplier updated successfully', 'data' => $supplier]);
         } catch (\Exception $e) {
-            Log::error('Supplier Update Error: ' . $e->getMessage());
-            return response()->json([
-                'status' => false,
-                'message' => 'Supplier not found.'
-            ], 404);
+            return response()->json(['status' => false, 'message' => 'Supplier not found.'], 404);
         }
     }
 
-    /**
-     * Remove the specified resource from storage.
-     */
     public function destroy(string $id)
     {
         try {
             $supplier = Supplier::find($id);
-            if (!$supplier) return response()->json([
-                'status' => false,
-                'message' => 'Supplier not found'
-            ], 404);
-
+            if (!$supplier) return response()->json(['status' => false, 'message' => 'Supplier not found'], 404);
             $supplier->delete();
+            return response()->json(['status' => true, 'message' => 'Supplier deleted successfully']);
+        } catch (\Exception $e) {
+            return response()->json(['status' => false, 'message' => 'Failed to delete.'], 404);
+        }
+    }
+
+    // 🔥🔥 History Method Added Here
+    public function history($id)
+    {
+        try {
+            $supplier = Supplier::findOrFail($id);
+            $history = Transaction::where('supplier_id', $id)
+                ->orderBy('date', 'desc')
+                ->orderBy('created_at', 'desc')
+                ->get();
+
             return response()->json([
                 'status' => true,
-                'message' => 'Supplier deleted successfully'
+                'data' => [
+                    'supplier' => $supplier,
+                    'sales' => $history
+                ]
             ]);
-
         } catch (\Exception $e) {
-            Log::error('Supplier Deletion Error: ' . $e->getMessage());
             return response()->json([
                 'status' => false,
-                'message' => 'Supplier not found.'
-            ], 404);
+                'message' => 'Failed to fetch history'
+            ], 500);
         }
     }
 }
