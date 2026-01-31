@@ -13,6 +13,7 @@
     "@heroicons/vue": "^2.2.0",
     "apexcharts": "^5.3.6",
     "axios": "^1.13.2",
+    "jsbarcode": "^3.12.3",
     "lodash": "^4.17.23",
     "pinia": "^3.0.4",
     "sweetalert2": "^11.26.17",

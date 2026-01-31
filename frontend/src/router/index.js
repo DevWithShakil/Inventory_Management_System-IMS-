@@ -16,6 +16,7 @@ import Users from '../views/Users.vue';
 import Coupons from '../views/Coupons.vue';
 import ExpenseList from '../views/ExpenseList.vue';
 import ExpenseCategories from '../views/ExpenseCategories.vue';
+import BarcodeGenerator from '../views/BarcodeGenerator.vue';
 
 const routes = [
     {
@@ -112,6 +113,12 @@ const routes = [
                 name: 'expense-categories',
                 component: ExpenseCategories,
             },
+
+            {
+                path: '/barcode',
+                name: 'BarcodeGenerator',
+                component: BarcodeGenerator
+            }
 
         ]
     },

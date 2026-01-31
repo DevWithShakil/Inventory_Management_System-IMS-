@@ -20,7 +20,8 @@ import {
   SwatchIcon,
   ScaleIcon,
   TicketIcon,
-  CurrencyDollarIcon, // 🔥 Added for Expenses
+  CurrencyDollarIcon,
+  QrCodeIcon,
 } from "@heroicons/vue/24/outline";
 
 const route = useRoute();
@@ -36,7 +37,6 @@ const updateUserFromStorage = () => {
   user.value = JSON.parse(localStorage.getItem("user") || "{}");
 };
 
-// --- Fetch Settings for Logo ---
 const fetchSettings = async () => {
   try {
     const response = await axios.get("/settings");
@@ -80,22 +80,62 @@ const menuItems = computed(() => {
       icon: BanknotesIcon,
       roles: ["admin", "staff"],
       children: [
-        { name: "POS Console", path: "/pos", icon: ShoppingBagIcon },
-        { name: "Sales History", path: "/sales", icon: ListBulletIcon },
+        {
+          name: "POS Console",
+          path: "/pos",
+          icon: ShoppingBagIcon,
+          roles: ["admin", "staff"],
+        },
+        {
+          name: "Sales History",
+          path: "/sales",
+          icon: ListBulletIcon,
+          roles: ["admin", "staff"],
+        },
       ],
     },
-
-    // 🔥 EXPENSES SECTION ADDED HERE
     {
       name: "Expenses",
       icon: CurrencyDollarIcon,
-      roles: ["admin", "staff"], // স্টাফরাও দেখতে পাবে
+      roles: ["admin", "staff"],
       children: [
-        { name: "All Expenses", path: "/expenses", icon: ListBulletIcon },
+        {
+          name: "All Expenses",
+          path: "/expenses",
+          icon: ListBulletIcon,
+          roles: ["admin", "staff"],
+        },
         {
           name: "Add Expense",
           path: "/expenses?action=add",
           icon: PlusCircleIcon,
+          roles: ["admin", "staff"],
+        },
+      ],
+    },
+
+    {
+      name: "Inventory",
+      icon: CubeIcon,
+      roles: ["admin", "staff"],
+      children: [
+        {
+          name: "Product List",
+          path: "/inventory",
+          icon: ListBulletIcon,
+          roles: ["admin"],
+        },
+        {
+          name: "Add Product",
+          path: "/inventory?action=add",
+          icon: PlusCircleIcon,
+          roles: ["admin"],
+        },
+        {
+          name: "Print Labels",
+          path: "/barcode",
+          icon: QrCodeIcon,
+          roles: ["admin", "staff"],
         },
       ],
     },
@@ -105,24 +145,17 @@ const menuItems = computed(() => {
       icon: ClipboardDocumentCheckIcon,
       roles: ["admin"],
       children: [
-        { name: "All Purchases", path: "/purchases", icon: ListBulletIcon },
+        {
+          name: "All Purchases",
+          path: "/purchases",
+          icon: ListBulletIcon,
+          roles: ["admin"],
+        },
         {
           name: "New Purchase",
           path: "/purchases/create",
           icon: PlusCircleIcon,
-        },
-      ],
-    },
-    {
-      name: "Inventory",
-      icon: CubeIcon,
-      roles: ["admin"],
-      children: [
-        { name: "Product List", path: "/inventory", icon: ListBulletIcon },
-        {
-          name: "Add Product",
-          path: "/inventory?action=add",
-          icon: PlusCircleIcon,
+          roles: ["admin"],
         },
       ],
     },
@@ -135,9 +168,20 @@ const menuItems = computed(() => {
           name: "Categories",
           path: "/attributes?tab=categories",
           icon: TagIcon,
+          roles: ["admin"],
         },
-        { name: "Brands", path: "/attributes?tab=brands", icon: SwatchIcon },
-        { name: "Units", path: "/attributes?tab=units", icon: ScaleIcon },
+        {
+          name: "Brands",
+          path: "/attributes?tab=brands",
+          icon: SwatchIcon,
+          roles: ["admin"],
+        },
+        {
+          name: "Units",
+          path: "/attributes?tab=units",
+          icon: ScaleIcon,
+          roles: ["admin"],
+        },
       ],
     },
     {
@@ -145,11 +189,17 @@ const menuItems = computed(() => {
       icon: TruckIcon,
       roles: ["admin"],
       children: [
-        { name: "All Suppliers", path: "/suppliers", icon: ListBulletIcon },
+        {
+          name: "All Suppliers",
+          path: "/suppliers",
+          icon: ListBulletIcon,
+          roles: ["admin"],
+        },
         {
           name: "Add Supplier",
           path: "/suppliers?action=add",
           icon: PlusCircleIcon,
+          roles: ["admin"],
         },
       ],
     },
@@ -158,11 +208,17 @@ const menuItems = computed(() => {
       icon: UsersIcon,
       roles: ["staff", "admin"],
       children: [
-        { name: "All Customers", path: "/customers", icon: ListBulletIcon },
+        {
+          name: "All Customers",
+          path: "/customers",
+          icon: ListBulletIcon,
+          roles: ["staff", "admin"],
+        },
         {
           name: "Add Customer",
           path: "/customers?action=add",
           icon: PlusCircleIcon,
+          roles: ["staff", "admin"],
         },
       ],
     },
@@ -185,7 +241,22 @@ const menuItems = computed(() => {
       roles: ["admin"],
     },
   ];
-  return items.filter((item) => item.roles.includes(role));
+
+  return items.reduce((acc, item) => {
+    if (item.roles.includes(role)) {
+      if (item.children) {
+        const filteredChildren = item.children.filter(
+          (child) => !child.roles || child.roles.includes(role),
+        );
+        if (filteredChildren.length > 0) {
+          acc.push({ ...item, children: filteredChildren });
+        }
+      } else {
+        acc.push(item);
+      }
+    }
+    return acc;
+  }, []);
 });
 
 defineProps({
@@ -374,7 +445,6 @@ const isActive = (path) => {
 </template>
 
 <style scoped>
-/* Optional: Custom Scrollbar for Sidebar Navigation */
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
