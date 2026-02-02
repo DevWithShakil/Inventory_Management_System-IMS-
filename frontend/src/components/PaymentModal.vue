@@ -6,7 +6,7 @@ import {
   CreditCardIcon,
   DevicePhoneMobileIcon,
   CheckCircleIcon,
-  ArrowRightCircleIcon, // নতুন আইকন
+  ArrowRightCircleIcon,
 } from "@heroicons/vue/24/outline";
 
 const props = defineProps({
@@ -23,8 +23,6 @@ const receivedAmount = ref(0);
 const note = ref("");
 const amountInput = ref(null);
 
-// --- Watcher: Payment Method Change ---
-// কার্ড বা MFS সিলেক্ট করলে অটোমেটিক পুরো অ্যামাউন্ট সেট হবে এবং এডিট করা যাবে না
 watch(paymentMethod, (newMethod) => {
   if (newMethod !== "cash") {
     receivedAmount.value = props.totalAmount;
@@ -49,13 +47,13 @@ watch(
 
 // --- Computeds ---
 const changeAmount = computed(() => {
-  if (paymentMethod.value !== "cash") return 0; // অনলাইন পেমেন্টে চেঞ্জ নেই
+  if (paymentMethod.value !== "cash") return 0;
   const change = receivedAmount.value - props.totalAmount;
   return change > 0 ? change : 0;
 });
 
 const dueAmount = computed(() => {
-  if (paymentMethod.value !== "cash") return 0; // অনলাইন পেমেন্টে ডিউ নেই
+  if (paymentMethod.value !== "cash") return 0;
   const due = props.totalAmount - receivedAmount.value;
   return due > 0 ? due : 0;
 });
@@ -159,7 +157,7 @@ const handleConfirm = () => {
               }`"
             >
               <DevicePhoneMobileIcon class="w-6 h-6" />
-              <span class="text-xs font-bold">MFS (Bkash)</span>
+              <span class="text-xs font-bold">MFS</span>
             </button>
           </div>
         </div>

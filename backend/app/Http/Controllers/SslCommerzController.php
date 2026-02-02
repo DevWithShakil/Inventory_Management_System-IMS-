@@ -7,7 +7,10 @@ use App\Library\SslCommerz\SslCommerzNotification;
 use App\Models\Sale;
 use App\Models\Product;
 use App\Models\SaleItem;
+use App\Models\Transaction;
+use App\Models\Customer;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class SslCommerzController extends Controller
 {
@@ -55,31 +58,21 @@ class SslCommerzController extends Controller
 
             DB::commit();
 
+            // SSL Init Data
             $post_data = array();
             $post_data['total_amount'] = $sale->grand_total;
             $post_data['currency'] = "BDT";
             $post_data['tran_id'] = $sale->transaction_id;
+
+            // Named routes must exist in api.php
             $post_data['success_url'] = route('ssl.success');
             $post_data['fail_url'] = route('ssl.fail');
             $post_data['cancel_url'] = route('ssl.cancel');
+
             $post_data['cus_name'] = $sale->customer->name ?? "Walk-in Customer";
             $post_data['cus_email'] = $sale->customer->email ?? "customer@pos.com";
-            $post_data['cus_add1'] = "Dhaka";
-            $post_data['cus_add2'] = "";
-            $post_data['cus_city'] = "";
-            $post_data['cus_state'] = "";
-            $post_data['cus_postcode'] = "";
-            $post_data['cus_country'] = "Bangladesh";
-            $post_data['cus_phone'] = $sale->customer->phone ?? "01700000000";
-            $post_data['cus_fax'] = "";
-            $post_data['ship_name'] = "Store Sale";
-            $post_data['ship_add1'] = "Dhaka";
-            $post_data['ship_add2'] = "Dhaka";
-            $post_data['ship_city'] = "Dhaka";
-            $post_data['ship_state'] = "Dhaka";
-            $post_data['ship_postcode'] = "1000";
-            $post_data['ship_country'] = "Bangladesh";
-
+            $post_data['cus_add1'] = "Dhaka"; $post_data['cus_add2'] = ""; $post_data['cus_city'] = ""; $post_data['cus_state'] = ""; $post_data['cus_postcode'] = ""; $post_data['cus_country'] = "Bangladesh"; $post_data['cus_phone'] = $sale->customer->phone ?? "01700000000"; $post_data['cus_fax'] = "";
+            $post_data['ship_name'] = "Store Sale"; $post_data['ship_add1'] = "Dhaka"; $post_data['ship_add2'] = "Dhaka"; $post_data['ship_city'] = "Dhaka"; $post_data['ship_state'] = "Dhaka"; $post_data['ship_postcode'] = "1000"; $post_data['ship_country'] = "Bangladesh";
             $post_data['shipping_method'] = "NO";
             $post_data['product_name'] = "POS Items";
             $post_data['product_category'] = "Goods";
@@ -111,6 +104,7 @@ class SslCommerzController extends Controller
         }
     }
 
+    // --- SUCCESS CALLBACK ---
     public function success(Request $request)
     {
         $tran_id = $request->input('tran_id');
@@ -118,34 +112,107 @@ class SslCommerzController extends Controller
         $currency = $request->input('currency');
 
         $sslc = new SslCommerzNotification();
-
-
         $validation = $sslc->orderValidate($request->all(), $tran_id, $amount, $currency);
 
         if ($validation) {
-        $sale = Sale::where('transaction_id', $tran_id)->first();
 
-        if($sale) {
-            $sale->update([
-                'payment_status' => 'paid',
-                'paid_amount' => $amount,
-                'due_amount' => 0,
-            ]);
+            //CASE 1: Due Payment (Identified by custom value_a)
+            if ($request->input('value_a') === 'due_collection') {
 
-            return redirect('http://localhost:5173/pos?payment_success=true&sale_id=' . $sale->id);
+                $customerId = $request->input('value_b');
+                $note = $request->input('value_c');
+                $staffId = $request->input('value_d');
+
+                try {
+                    DB::beginTransaction();
+
+                    // Update Balance
+                    $customer = Customer::find($customerId);
+                    if ($customer) {
+                        $customer->decrement('balance', $amount);
+
+                        // Clear Invoices Logic (Replicated for safety in callback)
+                        $clearedInvoices = [];
+                        $unpaidSales = Sale::where('customer_id', $customerId)
+                            ->where('payment_status', '!=', 'paid')
+                            ->orderBy('date', 'asc')->get();
+
+                        $rem = $amount;
+                        foreach ($unpaidSales as $sale) {
+                            if ($rem <= 0) break;
+                            $due = $sale->due_amount;
+                            $pay = ($rem >= $due) ? $due : $rem;
+
+                            $sale->update([
+                                'paid_amount' => $sale->paid_amount + $pay,
+                                'due_amount' => $sale->due_amount - $pay,
+                                'payment_status' => ($rem >= $due) ? 'paid' : 'partial'
+                            ]);
+                            $rem -= $pay;
+                            $clearedInvoices[] = ['invoice_no' => $sale->invoice_no, 'date' => $sale->date, 'amount' => $pay];
+                        }
+
+                        // Create Transaction Record
+                        Transaction::create([
+                            'trx_id' => $tran_id,
+                            'type' => 'credit',
+                            'customer_id' => $customerId,
+                            'amount' => $amount,
+                            'date' => now(),
+                            'payment_method' => 'sslcommerz',
+                            'note' => $note ?? 'Online Due Payment',
+                            'meta_data' => $clearedInvoices,
+                            'created_by' => $staffId ?? 1
+                        ]);
+                    }
+                    DB::commit();
+
+                    // Redirect to Customer Page
+                    return redirect('http://localhost:5173/customers?payment=success&trx_id=' . $tran_id);
+
+                } catch (\Exception $e) {
+                    DB::rollBack();
+                    Log::error("Due Payment Error: " . $e->getMessage());
+                    return redirect('http://localhost:5173/customers?payment=error&message=' . urlencode('System Error'));
+                }
+            }
+
+            // CASE 2: POS Sale (Default/Existing Logic)
+            else {
+                $sale = Sale::where('transaction_id', $tran_id)->first();
+
+                if($sale) {
+                    $sale->update([
+                        'payment_status' => 'paid',
+                        'paid_amount' => $amount,
+                        'due_amount' => 0,
+                    ]);
+
+                    return redirect('http://localhost:5173/pos?payment_success=true&sale_id=' . $sale->id);
+                }
+            }
         }
-        }
 
+        // Validation Failed Redirects
+        if ($request->input('value_a') === 'due_collection') {
+            return redirect('http://localhost:5173/customers?payment=failed');
+        }
         return redirect('http://localhost:5173/sales/failed');
     }
 
     public function fail(Request $request)
     {
+        if ($request->input('value_a') === 'due_collection') {
+            return redirect('http://localhost:5173/customers?payment=failed');
+        }
         return redirect('http://localhost:5173/sales/failed');
     }
 
     public function cancel(Request $request)
     {
+        if ($request->input('value_a') === 'due_collection') {
+            return redirect('http://localhost:5173/customers?payment=cancel');
+        }
         return redirect('http://localhost:5173/sales/cancel');
     }
 }

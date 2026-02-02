@@ -36,11 +36,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // 1. Dashboard & Reports
     Route::get('/dashboard/overview', [ReportController::class, 'dashboardOverview']);
-    Route::get('/reports/low-stock', [ReportController::class, 'lowStockReport']); // 🔥 Moved Here (Fixes Dashboard Alert)
-    Route::get('/notifications', [ReportController::class, 'lowStockReport']);     // 🔥 Moved Here (Fixes Sidebar Badge)
+    Route::get('/reports/low-stock', [ReportController::class, 'lowStockReport']);
+    Route::get('/notifications', [ReportController::class, 'lowStockReport']);
 
     // 2. Settings (Read Only - For Logo/App Name)
-    Route::get('/settings', [SettingController::class, 'index']); // 🔥 Moved Here (Fixes Sidebar Error)
+    Route::get('/settings', [SettingController::class, 'index']);
 
     // 3. Sales Operations
     Route::apiResource('sales', SaleController::class)->only(['store', 'index', 'show']);
@@ -53,6 +53,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // 5. Payment
     Route::post('/pay-via-ssl', [SslCommerzController::class, 'payViaAjax']);
+
 
     // 6. Coupon Management Routes
     Route::get('/coupons', [CouponController::class, 'index']);

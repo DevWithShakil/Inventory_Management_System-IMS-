@@ -10,6 +10,7 @@ use App\Models\Sale;
 use App\Models\Purchase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Library\SslCommerz\SslCommerzNotification;
 
 class TransactionController extends Controller
 {
@@ -46,11 +47,6 @@ class TransactionController extends Controller
         ]);
 
         try {
-            DB::beginTransaction();
-
-            $trxId = 'TRX-' . time() . rand(100, 999);
-            $clearedInvoices = [];
-
             // ==========================================
             // Case A: Customer Paying Due
             // ==========================================
@@ -65,43 +61,86 @@ class TransactionController extends Controller
                     ], 422);
                 }
 
-                $customer->decrement('balance', $request->amount);
+                // 🔥 SSLCommerz Integration Logic (NEW)
+                // If payment method is NOT cash, initiate online payment
+                if ($request->payment_method !== 'cash') {
 
-                $unpaidSales = Sale::with('sale_items.product')
-                    ->where('customer_id', $request->customer_id)
-                    ->where('payment_status', '!=', 'paid')
-                    ->orderBy('date', 'asc')
-                    ->get();
+                    $trxId = 'TRX-' . time() . rand(100, 999);
 
-                $remainingPayment = $request->amount;
+                    $post_data = array();
+                    $post_data['total_amount'] = $request->amount;
+                    $post_data['currency'] = "BDT";
+                    $post_data['tran_id'] = $trxId;
 
-                foreach ($unpaidSales as $sale) {
-                    if ($remainingPayment <= 0) break;
+                    // Reuse existing routes in SslCommerzController
+                    // Make sure these named routes exist in api.php or use url() helper
+                    $post_data['success_url'] = route('ssl.success');
+                    $post_data['fail_url'] = route('ssl.fail');
+                    $post_data['cancel_url'] = route('ssl.cancel');
 
-                    $due = $sale->due_amount;
-                    $paidForThis = 0;
+                    # Customer Info
+                    $post_data['cus_name'] = $customer->name;
+                    $post_data['cus_email'] = $customer->email ?? 'customer@example.com';
+                    $post_data['cus_add1'] = $customer->address ?? 'Dhaka';
+                    $post_data['cus_add2'] = "";
+                    $post_data['cus_city'] = "";
+                    $post_data['cus_state'] = "";
+                    $post_data['cus_postcode'] = "";
+                    $post_data['cus_country'] = "Bangladesh";
+                    $post_data['cus_phone'] = $customer->phone;
+                    $post_data['cus_fax'] = "";
 
-                    if ($remainingPayment >= $due) {
-                        $sale->update(['paid_amount' => $sale->paid_amount + $due, 'due_amount' => 0, 'payment_status' => 'paid']);
-                        $paidForThis = $due;
-                        $remainingPayment -= $due;
-                    } else {
-                        $sale->update(['paid_amount' => $sale->paid_amount + $remainingPayment, 'due_amount' => $sale->due_amount - $remainingPayment, 'payment_status' => 'partial']);
-                        $paidForThis = $remainingPayment;
-                        $remainingPayment = 0;
+                    # Shipment (Required fields)
+                    $post_data['ship_name'] = "Store Test";
+                    $post_data['ship_add1'] = "Dhaka";
+                    $post_data['ship_add2'] = "Dhaka";
+                    $post_data['ship_city'] = "Dhaka";
+                    $post_data['ship_state'] = "Dhaka";
+                    $post_data['ship_postcode'] = "1000";
+                    $post_data['ship_country'] = "Bangladesh";
+
+                    $post_data['shipping_method'] = "NO";
+                    $post_data['product_name'] = "Due Payment";
+                    $post_data['product_category'] = "Due Collection";
+                    $post_data['product_profile'] = "general";
+
+                    # 🔥 Custom Parameters (Sent to Success Callback)
+                    // value_a identifies this as a "due_collection" payment vs a POS sale
+                    $post_data['value_a'] = 'due_collection';
+                    $post_data['value_b'] = $request->customer_id; // Customer ID
+                    $post_data['value_c'] = $request->note; // Note
+                    $post_data['value_d'] = auth()->id() ?? 1; // Staff ID
+
+                    // Call SSLCommerz
+                    $sslc = new SslCommerzNotification();
+                    $payment_options = $sslc->makePayment($post_data, 'checkout', 'json');
+
+                    if (!is_array($payment_options)) {
+                        return response()->json([
+                            'status' => false,
+                            'message' => 'Invalid Payment Configuration'
+                        ], 400);
                     }
 
-                    $productNames = $sale->sale_items->map(function($item) {
-                        return $item->product ? $item->product->name . " (Qty: $item->quantity)" : 'Item';
-                    })->join(', ');
-
-                    $clearedInvoices[] = [
-                        'invoice_no' => $sale->invoice_no ?? ('INV-'.$sale->id),
-                        'date' => $sale->date,
-                        'products' => $productNames,
-                        'amount' => $paidForThis
-                    ];
+                    // Return URL to frontend for redirection
+                    return response()->json([
+                        'status' => true,
+                        'gateway_url' => $payment_options['GatewayPageURL'] ?? $payment_options['url'],
+                        'direct_payment' => false
+                    ]);
                 }
+
+                // ---------------------------------------------------------
+                // CASH Payment Logic (Immediate Execution)
+                // ---------------------------------------------------------
+
+                DB::beginTransaction();
+                $trxId = 'TRX-' . time() . rand(100, 999);
+
+                $customer->decrement('balance', $request->amount);
+
+                // Helper function to clear invoices logic
+                $clearedInvoices = $this->processInvoiceClearing($request->customer_id, $request->amount);
 
                 $transaction = Transaction::create([
                     'trx_id' => $trxId,
@@ -111,15 +150,26 @@ class TransactionController extends Controller
                     'date' => $request->date,
                     'payment_method' => $request->payment_method,
                     'note' => $request->note,
-                    'meta_data' => $clearedInvoices, // 🔥 FIX: No json_encode
+                    'meta_data' => $clearedInvoices,
                     'created_by' => auth()->id() ?? 1
+                ]);
+
+                DB::commit();
+                $transaction->load(['customer']);
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Payment recorded successfully',
+                    'data' => $transaction
                 ]);
             }
 
             // ==========================================
-            // Case B: Supplier Payment
+            // Case B: Supplier Payment (Debit)
             // ==========================================
             elseif ($request->type === 'supplier_pay') {
+                DB::beginTransaction();
+                $trxId = 'TRX-' . time() . rand(100, 999);
 
                 $supplier = Supplier::findOrFail($request->supplier_id);
 
@@ -132,42 +182,8 @@ class TransactionController extends Controller
 
                 $supplier->decrement('balance', $request->amount);
 
-                $unpaidPurchases = Purchase::with(['purchase_items.product'])
-                    ->where('supplier_id', $request->supplier_id)
-                    ->where('payment_status', '!=', 'paid')
-                    ->orderBy('date', 'asc')
-                    ->get();
-
-                $remainingPayment = $request->amount;
-
-                foreach ($unpaidPurchases as $purchase) {
-                    if ($remainingPayment <= 0) break;
-
-                    $due = $purchase->due_amount;
-                    $paidForThis = 0;
-
-                    if ($remainingPayment >= $due) {
-                        $purchase->update(['paid_amount' => $purchase->paid_amount + $due, 'due_amount' => 0, 'payment_status' => 'paid']);
-                        $paidForThis = $due;
-                        $remainingPayment -= $due;
-                    } else {
-                        $purchase->update(['paid_amount' => $purchase->paid_amount + $remainingPayment, 'due_amount' => $purchase->due_amount - $remainingPayment, 'payment_status' => 'partial']);
-                        $paidForThis = $remainingPayment;
-                        $remainingPayment = 0;
-                    }
-
-                    $itemsList = $purchase->purchase_items ?? collect([]);
-                    $productNames = $itemsList->map(function($item) {
-                        return $item->product ? $item->product->name . " (Qty: $item->quantity)" : 'Item';
-                    })->join(', ');
-
-                    $clearedInvoices[] = [
-                        'invoice_no' => $purchase->reference_no ?? ('PUR-'.$purchase->id),
-                        'date' => $purchase->date,
-                        'products' => $productNames,
-                        'amount' => $paidForThis
-                    ];
-                }
+                // Process Purchase Clearing logic
+                $clearedInvoices = $this->processPurchaseClearing($request->supplier_id, $request->amount);
 
                 $transaction = Transaction::create([
                     'trx_id' => $trxId,
@@ -177,27 +193,91 @@ class TransactionController extends Controller
                     'date' => $request->date,
                     'payment_method' => $request->payment_method,
                     'note' => $request->note,
-                    'meta_data' => $clearedInvoices, // 🔥 FIX: Consistent Array
+                    'meta_data' => $clearedInvoices,
                     'created_by' => auth()->id() ?? 1
                 ]);
+
+                DB::commit();
+                $transaction->load(['supplier']);
+
+                return response()->json([
+                    'status' => true,
+                    'message' => 'Payment recorded successfully',
+                    'data' => $transaction
+                ]);
             }
-
-            DB::commit();
-
-            // 🔥 FIX: Return loaded relationship so frontend gets customer name immediately
-            $transaction->load(['customer', 'supplier']);
-
-            return response()->json([
-                'status' => true,
-                'message' => 'Payment recorded successfully',
-                'data' => $transaction
-            ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error("Transaction Error: " . $e->getMessage());
             return response()->json(['status' => false, 'message' => $e->getMessage()], 500);
         }
+    }
+
+    // Helper: Logic to clear sales invoices
+    private function processInvoiceClearing($customerId, $amount) {
+        $unpaidSales = Sale::where('customer_id', $customerId)
+            ->where('payment_status', '!=', 'paid')
+            ->orderBy('date', 'asc')
+            ->get();
+
+        $remainingPayment = $amount;
+        $clearedInvoices = [];
+
+        foreach ($unpaidSales as $sale) {
+            if ($remainingPayment <= 0) break;
+
+            $due = $sale->due_amount;
+            $pay = ($remainingPayment >= $due) ? $due : $remainingPayment;
+
+            $sale->update([
+                'paid_amount' => $sale->paid_amount + $pay,
+                'due_amount' => $sale->due_amount - $pay,
+                'payment_status' => ($remainingPayment >= $due) ? 'paid' : 'partial'
+            ]);
+
+            $remainingPayment -= $pay;
+
+            $clearedInvoices[] = [
+                'invoice_no' => $sale->invoice_no ?? ('INV-'.$sale->id),
+                'date' => $sale->date,
+                'amount' => $pay
+            ];
+        }
+        return $clearedInvoices;
+    }
+
+    // Helper: Logic to clear purchase invoices
+    private function processPurchaseClearing($supplierId, $amount) {
+        $unpaidPurchases = Purchase::where('supplier_id', $supplierId)
+            ->where('payment_status', '!=', 'paid')
+            ->orderBy('date', 'asc')
+            ->get();
+
+        $remainingPayment = $amount;
+        $clearedInvoices = [];
+
+        foreach ($unpaidPurchases as $purchase) {
+            if ($remainingPayment <= 0) break;
+
+            $due = $purchase->due_amount;
+            $pay = ($remainingPayment >= $due) ? $due : $remainingPayment;
+
+            $purchase->update([
+                'paid_amount' => $purchase->paid_amount + $pay,
+                'due_amount' => $purchase->due_amount - $pay,
+                'payment_status' => ($remainingPayment >= $due) ? 'paid' : 'partial'
+            ]);
+
+            $remainingPayment -= $pay;
+
+            $clearedInvoices[] = [
+                'invoice_no' => $purchase->reference_no ?? ('PUR-'.$purchase->id),
+                'date' => $purchase->date,
+                'amount' => $pay
+            ];
+        }
+        return $clearedInvoices;
     }
 
     public function show($trx_id)
@@ -225,7 +305,6 @@ class TransactionController extends Controller
 
     public function destroy($id)
     {
-        // ... (Destroy method remains same)
         $transaction = Transaction::find($id);
         if (!$transaction) return response()->json(['status' => false, 'message' => 'Not found'], 404);
 

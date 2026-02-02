@@ -20,6 +20,10 @@ import {
   EyeIcon,
   BanknotesIcon,
   XMarkIcon,
+  CreditCardIcon,
+  DevicePhoneMobileIcon,
+  CheckCircleIcon,
+  ArrowRightCircleIcon,
 } from "@heroicons/vue/24/outline";
 
 const route = useRoute();
@@ -44,7 +48,7 @@ const historyCustomer = ref(null);
 const showReceiptModal = ref(false);
 const selectedTrxId = ref(null);
 
-// 🔥 ১. Local Date পাওয়ার ফাংশন (Timezone Fix)
+// Date Helper
 const getLocalDate = () => {
   const today = new Date();
   const year = today.getFullYear();
@@ -61,7 +65,7 @@ const payForm = ref({
   customer_name: "",
   current_due: 0,
   amount: "",
-  date: getLocalDate(), // 🔥 ফিক্স: এখন লোকাল ডেট আসবে
+  date: getLocalDate(),
   payment_method: "cash",
   note: "",
 });
@@ -76,7 +80,6 @@ watch(
 
 // --- API Actions ---
 
-// 1. Fetch Customers
 const fetchCustomers = async () => {
   isLoading.value = true;
   try {
@@ -91,7 +94,6 @@ const fetchCustomers = async () => {
   }
 };
 
-// 2. Delete Customer
 const deleteCustomer = async (id) => {
   const result = await Swal.fire({
     title: "Are you sure?",
@@ -118,7 +120,6 @@ const deleteCustomer = async (id) => {
   }
 };
 
-// 3. View History
 const viewHistory = async (customer) => {
   historyCustomer.value = customer;
   showHistoryModal.value = true;
@@ -127,21 +128,17 @@ const viewHistory = async (customer) => {
 
   try {
     const response = await axios.get(`/customers/${customer.id}/history`);
-
     if (response.data.status) {
       const result = response.data.data;
-
       if (Array.isArray(result)) {
         customerHistory.value = result;
       } else if (result && result.data && Array.isArray(result.data)) {
         customerHistory.value = result.data;
       } else {
         customerHistory.value = [];
-        console.warn("Unexpected history data format", result);
       }
     }
   } catch (error) {
-    console.error("History fetch error", error);
     Swal.fire({
       icon: "error",
       title: "Error",
@@ -156,7 +153,7 @@ const viewHistory = async (customer) => {
   }
 };
 
-// 4. Payment Functions
+// --- Payment Logic ---
 
 const openPayModal = (customer) => {
   payForm.value = {
@@ -164,11 +161,15 @@ const openPayModal = (customer) => {
     customer_name: customer.name,
     current_due: customer.balance,
     amount: "",
-    date: getLocalDate(), // 🔥 ফিক্স: ওপেন করার সময়ও সঠিক তারিখ সেট হবে
+    date: getLocalDate(),
     payment_method: "cash",
     note: "",
   };
   showPayModal.value = true;
+};
+
+const setPaymentMethod = (method) => {
+  payForm.value.payment_method = method;
 };
 
 const submitPayment = async () => {
@@ -187,6 +188,7 @@ const submitPayment = async () => {
   }
 
   submittingPay.value = true;
+
   try {
     const response = await axios.post("/transactions", {
       type: "customer_pay",
@@ -198,11 +200,25 @@ const submitPayment = async () => {
     });
 
     if (response.data.status) {
-      if (response.data.gateway_url) {
-        window.location.href = response.data.gateway_url;
+      // 1. Check for Redirect URL (Online Payment)
+      const redirectUrl = response.data.gateway_url || response.data.url;
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
+        return; // Stop here, browser will redirect
+      }
+
+      // 2. Fallback Error for Online Payment
+      if (payForm.value.payment_method !== "cash") {
+        Swal.fire(
+          "Error",
+          "Payment Gateway initialization failed. No redirect URL received.",
+          "error",
+        );
+        submittingPay.value = false;
         return;
       }
 
+      // 3. Cash Payment Success Logic
       showPayModal.value = false;
       await fetchCustomers();
 
@@ -222,15 +238,15 @@ const submitPayment = async () => {
           }
         }
       });
+      submittingPay.value = false;
     }
   } catch (error) {
+    submittingPay.value = false;
     let msg = "Failed to collect payment";
     if (error.response && error.response.data && error.response.data.message) {
       msg = error.response.data.message;
     }
     Swal.fire("Error", msg, "error");
-  } finally {
-    submittingPay.value = false;
   }
 };
 
@@ -261,7 +277,50 @@ const handleModalClose = (refresh) => {
   if (refresh) fetchCustomers();
 };
 
-onMounted(() => fetchCustomers());
+// 🔥 UPDATED onMounted to Handle SSLCommerz Return
+onMounted(() => {
+  fetchCustomers();
+
+  // Check URL parameters for Payment Status
+  const { payment, trx_id, message } = route.query;
+
+  if (payment === "success") {
+    Swal.fire({
+      icon: "success",
+      title: "Online Payment Successful!",
+      text: `Transaction ID: ${trx_id}`,
+      showCancelButton: true,
+      confirmButtonText: "Print Receipt",
+      cancelButtonText: "Close",
+      confirmButtonColor: "#4f46e5",
+    }).then((result) => {
+      if (result.isConfirmed && trx_id) {
+        // Open Receipt Modal
+        selectedTrxId.value = trx_id;
+        showReceiptModal.value = true;
+      }
+    });
+  } else if (payment === "failed" || payment === "error") {
+    Swal.fire({
+      icon: "error",
+      title: "Payment Failed",
+      text: message || "Transaction could not be completed.",
+      confirmButtonColor: "#d33",
+    });
+  } else if (payment === "cancel") {
+    Swal.fire({
+      icon: "info",
+      title: "Payment Cancelled",
+      text: "You cancelled the payment process.",
+      confirmButtonColor: "#6b7280",
+    });
+  }
+
+  // Clean URL if payment params exist (prevents alert on refresh)
+  if (payment) {
+    router.replace({ query: null });
+  }
+});
 </script>
 
 <template>
@@ -387,8 +446,8 @@ onMounted(() => fetchCustomers());
                       : 'text-emerald-600'
                   "
                 >
-                  {{ Number(customer.balance) > 0 ? "Due: " : "" }}
-                  ৳ {{ Number(customer.balance).toLocaleString() }}
+                  {{ Number(customer.balance) > 0 ? "Due: " : "" }} ৳
+                  {{ Number(customer.balance).toLocaleString() }}
                 </span>
               </td>
               <td class="px-6 py-3 text-center">
@@ -404,7 +463,6 @@ onMounted(() => fetchCustomers());
                   <button
                     @click="viewHistory(customer)"
                     class="p-1.5 text-indigo-600 bg-indigo-50 rounded hover:bg-indigo-100 transition"
-                    title="History"
                   >
                     <EyeIcon class="w-4 h-4" />
                   </button>
@@ -433,7 +491,6 @@ onMounted(() => fetchCustomers());
       :customer="selectedCustomer"
       @close="handleModalClose"
     />
-
     <CustomerHistoryModal
       :isOpen="showHistoryModal"
       :customer="historyCustomer"
@@ -441,7 +498,6 @@ onMounted(() => fetchCustomers());
       :loading="historyLoading"
       @close="showHistoryModal = false"
     />
-
     <TransactionReceiptModal
       :isOpen="showReceiptModal"
       :trxId="selectedTrxId"
@@ -450,46 +506,108 @@ onMounted(() => fetchCustomers());
 
     <div
       v-if="showPayModal"
-      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
     >
       <div
-        class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-xl overflow-hidden"
+        class="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-xl overflow-hidden animate-fade-in-up flex flex-col max-h-[90vh]"
       >
         <div
-          class="px-6 py-4 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center bg-emerald-50 dark:bg-emerald-900/20"
+          class="px-5 py-3 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center bg-gray-50 dark:bg-slate-800/50 flex-shrink-0"
         >
           <div>
-            <h3 class="text-lg font-bold text-gray-800 dark:text-white">
-              Collect Due Payment
+            <h3 class="text-base font-bold text-gray-800 dark:text-white">
+              Collect Payment
             </h3>
-            <p class="text-xs text-gray-500">
-              Customer:
-              <span class="font-bold text-emerald-600">{{
+            <p class="text-[10px] text-gray-500">
+              For:
+              <span class="font-bold text-indigo-600">{{
                 payForm.customer_name
               }}</span>
             </p>
           </div>
           <button
             @click="showPayModal = false"
-            class="text-gray-400 hover:text-red-500"
+            class="text-gray-400 hover:text-red-500 transition"
           >
-            <XMarkIcon class="w-6 h-6" />
+            <XMarkIcon class="w-5 h-5" />
           </button>
         </div>
 
-        <div class="p-6 space-y-4">
+        <div class="p-4 space-y-4 overflow-y-auto flex-1">
           <div
-            class="flex justify-between items-center p-3 bg-rose-50 rounded-lg border border-rose-100"
+            class="bg-rose-50 dark:bg-rose-900/20 p-3 rounded-xl text-center border border-rose-100 dark:border-rose-800/30"
           >
-            <span class="text-sm font-medium text-rose-600"
-              >Current Due Amount:</span
+            <p
+              class="text-[10px] font-medium text-rose-600 dark:text-rose-400 uppercase tracking-wider"
             >
-            <span class="text-lg font-bold text-rose-700"
-              >৳ {{ Number(payForm.current_due).toLocaleString() }}</span
+              Current Due Amount
+            </p>
+            <h2
+              class="text-2xl font-extrabold text-rose-700 dark:text-rose-300"
             >
+              ৳ {{ Number(payForm.current_due).toLocaleString() }}
+            </h2>
           </div>
 
-          <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label
+              class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-2"
+              >Payment Method</label
+            >
+            <div class="grid grid-cols-3 gap-2">
+              <button
+                @click="setPaymentMethod('cash')"
+                :class="`flex flex-col items-center justify-center gap-1 p-2 rounded-lg border transition active:scale-95 ${payForm.payment_method === 'cash' ? 'bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-300' : 'bg-white dark:bg-slate-800 text-gray-600 border-gray-200 hover:bg-gray-50'}`"
+              >
+                <BanknotesIcon class="w-5 h-5" /><span
+                  class="text-[10px] font-bold"
+                  >Cash</span
+                >
+              </button>
+              <button
+                @click="setPaymentMethod('card')"
+                :class="`flex flex-col items-center justify-center gap-1 p-2 rounded-lg border transition active:scale-95 ${payForm.payment_method === 'card' ? 'bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-300' : 'bg-white dark:bg-slate-800 text-gray-600 border-gray-200 hover:bg-gray-50'}`"
+              >
+                <CreditCardIcon class="w-5 h-5" /><span
+                  class="text-[10px] font-bold"
+                  >Card</span
+                >
+              </button>
+              <button
+                @click="setPaymentMethod('mobile_bank')"
+                :class="`flex flex-col items-center justify-center gap-1 p-2 rounded-lg border transition active:scale-95 ${payForm.payment_method === 'mobile_bank' ? 'bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-300' : 'bg-white dark:bg-slate-800 text-gray-600 border-gray-200 hover:bg-gray-50'}`"
+              >
+                <DevicePhoneMobileIcon class="w-5 h-5" /><span
+                  class="text-[10px] font-bold"
+                  >MFS</span
+                >
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-bold text-gray-500 mb-1"
+                >{{
+                  payForm.payment_method === "cash"
+                    ? "Amount to Receive"
+                    : "Amount to Pay Online"
+                }}
+                <span class="text-red-500">*</span></label
+              >
+              <div class="relative">
+                <span class="absolute left-3 top-2.5 text-gray-500 font-bold"
+                  >৳</span
+                >
+                <input
+                  v-model="payForm.amount"
+                  type="number"
+                  placeholder="Enter Amount"
+                  class="w-full pl-8 p-2 border border-gray-300 rounded-lg font-bold text-base text-gray-800 focus:ring-2 focus:ring-indigo-500 outline-none"
+                />
+              </div>
+            </div>
+
             <div>
               <label class="block text-xs font-bold text-gray-500 mb-1"
                 >Date</label
@@ -497,77 +615,66 @@ onMounted(() => fetchCustomers());
               <input
                 v-model="payForm.date"
                 type="date"
-                class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+                class="w-full p-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
               />
             </div>
+
+            <div
+              v-if="payForm.payment_method !== 'cash'"
+              class="flex items-center gap-2 p-2 bg-blue-50 text-blue-700 text-[10px] rounded-lg border border-blue-100"
+            >
+              <ArrowRightCircleIcon class="w-4 h-4 flex-shrink-0" />
+              <p>
+                You will be redirected to the secure gateway to complete the
+                payment.
+              </p>
+            </div>
+
             <div>
               <label class="block text-xs font-bold text-gray-500 mb-1"
-                >Method</label
+                >Note (Optional)</label
               >
-              <select
-                v-model="payForm.payment_method"
-                class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-              >
-                <option value="cash">Cash</option>
-                <option value="bkash">Bkash (Online)</option>
-                <option value="card">Card (SSLCommerz)</option>
-                <option value="nagad">Nagad</option>
-              </select>
+              <textarea
+                v-model="payForm.note"
+                rows="2"
+                class="w-full p-2 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 outline-none"
+                placeholder="Reference..."
+              ></textarea>
             </div>
-          </div>
-
-          <div>
-            <label class="block text-xs font-bold text-gray-500 mb-1"
-              >Amount to Pay <span class="text-red-500">*</span></label
-            >
-            <div class="relative">
-              <span class="absolute left-3 top-2 text-gray-500 font-bold"
-                >৳</span
-              >
-              <input
-                v-model="payForm.amount"
-                type="number"
-                placeholder="Enter Amount"
-                class="w-full pl-8 p-2 border rounded-lg font-bold text-lg text-emerald-600 focus:ring-2 focus:ring-emerald-500 outline-none"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label class="block text-xs font-bold text-gray-500 mb-1"
-              >Note (Optional)</label
-            >
-            <textarea
-              v-model="payForm.note"
-              rows="2"
-              class="w-full p-2 border rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
-              placeholder="e.g. Paid via staff"
-            ></textarea>
           </div>
         </div>
 
         <div
-          class="px-6 py-4 bg-gray-50 dark:bg-slate-800 flex justify-end gap-3"
+          class="px-5 py-3 bg-gray-50 dark:bg-slate-800 border-t border-gray-100 dark:border-slate-800 flex justify-end gap-2 flex-shrink-0"
         >
           <button
             @click="showPayModal = false"
-            class="px-4 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded-lg text-sm"
+            class="px-4 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded-lg text-xs transition"
           >
             Cancel
           </button>
           <button
             @click="submitPayment"
             :disabled="submittingPay"
-            class="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 disabled:opacity-50 text-sm flex items-center gap-2"
+            class="px-5 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 text-xs flex items-center gap-2 shadow hover:shadow-indigo-500/30 transition transform active:scale-95"
           >
+            <component
+              :is="
+                payForm.payment_method === 'cash'
+                  ? CheckCircleIcon
+                  : ArrowRightCircleIcon
+              "
+              class="w-4 h-4"
+              v-if="!submittingPay"
+            />
             <span
               v-if="submittingPay"
-              class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"
+              class="animate-spin h-3 w-3 border-2 border-white border-t-transparent rounded-full"
             ></span>
             {{
               payForm.payment_method === "cash"
                 ? "Confirm Payment"
-                : "Pay Now (Online)"
+                : "Pay Online"
             }}
           </button>
         </div>
@@ -575,3 +682,19 @@ onMounted(() => fetchCustomers());
     </div>
   </div>
 </template>
+
+<style scoped>
+.animate-fade-in-up {
+  animation: fadeInUp 0.3s ease-out forwards;
+}
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+</style>
