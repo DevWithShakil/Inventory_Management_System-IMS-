@@ -80,7 +80,7 @@ class SupplierController extends Controller
         }
     }
 
-    // 🔥🔥 History Method Added Here
+    //  History Method Added Here
     public function history($id)
     {
         try {

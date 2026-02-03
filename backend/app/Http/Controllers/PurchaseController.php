@@ -11,7 +11,6 @@ use App\Models\Transaction;
 use App\Models\Product;
 use Illuminate\Support\Facades\DB;
 
-
 class PurchaseController extends Controller
 {
     /**
@@ -39,7 +38,7 @@ class PurchaseController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-public function store(Request $request)
+    public function store(Request $request)
     {
         $request->validate([
             'supplier_id' => 'required|exists:suppliers,id',
@@ -48,14 +47,12 @@ public function store(Request $request)
             'items.*.product_id' => 'required|exists:products,id',
             'items.*.quantity' => 'required|integer|min:1',
             'items.*.unit_cost' => 'required|numeric|min:0',
-            // 🔥 নতুন ভ্যালিডেশন
             'paid_amount' => 'nullable|numeric|min:0'
         ]);
 
         try {
             DB::beginTransaction();
 
-            // ১. সাবটোটাল ক্যালকুলেশন (আপনার আগের কোড)
             $subtotal = 0;
             foreach ($request->items as $item) {
                 $subtotal += $item['quantity'] * $item['unit_cost'];
@@ -64,23 +61,19 @@ public function store(Request $request)
             $discount = $request->discount ?? 0;
             $tax = $request->tax ?? 0;
 
-            // গ্র্যান্ড টোটাল
             $grandTotal = ($subtotal + $tax) - $discount;
 
-            // ২. 🔥 পেমেন্ট এবং ডিউ ক্যালকুলেশন (নতুন লজিক)
             $paidAmount = $request->paid_amount ?? 0;
             $dueAmount = $grandTotal - $paidAmount;
 
-            // পেমেন্ট স্ট্যাটাস নির্ধারণ
             $paymentStatus = 'due';
             if ($dueAmount <= 0) {
                 $paymentStatus = 'paid';
-                $dueAmount = 0; // নেগেটিভ ডিউ এড়াতে
+                $dueAmount = 0;
             } elseif ($paidAmount > 0) {
                 $paymentStatus = 'partial';
             }
 
-            // ৩. পারচেজ তৈরি (আপডেট করা হয়েছে)
             $purchase = Purchase::create([
                 'supplier_id' => $request->supplier_id,
                 'date' => $request->date,
@@ -89,14 +82,13 @@ public function store(Request $request)
                 'discount' => $discount,
                 'tax' => $tax,
                 'grand_total' => $grandTotal,
-                'paid_amount' => $paidAmount,       // 🔥 New
-                'due_amount' => $dueAmount,         // 🔥 New
-                'payment_status' => $paymentStatus, // 🔥 New
-                'status' => 'received', // বা 'completed' আপনার ডিফল্ট অনুযায়ী
+                'paid_amount' => $paidAmount,
+                'due_amount' => $dueAmount,
+                'payment_status' => $paymentStatus,
+                'status' => 'received',
                 'created_by' => auth()->id() ?? 1,
             ]);
 
-            // ৪. আইটেম তৈরি এবং স্টক আপডেট (আপনার আগের কোড - অপরিবর্তিত)
             foreach ($request->items as $item) {
                 PurchaseItem::create([
                     'purchase_id' => $purchase->id,
@@ -106,27 +98,24 @@ public function store(Request $request)
                     'subtotal' => $item['quantity'] * $item['unit_cost']
                 ]);
 
-                // প্রোডাক্ট স্টক এবং কস্ট প্রাইস আপডেট
                 $product = Product::find($item['product_id']);
                 $product->increment('stock_quantity', $item['quantity']);
                 $product->update(['cost_price' => $item['unit_cost']]);
             }
 
-            // ৫. 🔥 সাপ্লায়ার ব্যালেন্স আপডেট (যদি বাকি থাকে)
             if ($dueAmount > 0) {
                 Supplier::where('id', $request->supplier_id)->increment('balance', $dueAmount);
             }
 
-            // ৬. 🔥 ট্রানজেকশন রেকর্ড (যদি পেমেন্ট করা হয়)
             if ($paidAmount > 0) {
                 Transaction::create([
-                    'trx_id' => 'TRX-' . time() . rand(1000,9999),
-                    'type' => 'debit', // টাকা যাচ্ছে (Supplier Payment)
+                    'trx_id' => 'TRX-' . time() . rand(1000, 9999),
+                    'type' => 'debit',
                     'supplier_id' => $request->supplier_id,
-                    'purchase_id' => $purchase->id, // লিংক করা হলো
+                    'purchase_id' => $purchase->id,
                     'amount' => $paidAmount,
                     'date' => $request->date,
-                    'payment_method' => 'cash', // ডিফল্ট বা রিকোয়েস্ট থেকে নিতে পারেন
+                    'payment_method' => 'cash',
                     'note' => 'Paid during purchase creation',
                     'created_by' => auth()->id() ?? 1
                 ]);

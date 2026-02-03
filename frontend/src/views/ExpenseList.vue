@@ -32,9 +32,13 @@ const showCategoryModal = ref(false);
 const isEditing = ref(false);
 const editingId = ref(null);
 
-// User Role
+// --- 🔒 User Role Logic ---
 const user = JSON.parse(localStorage.getItem("user") || "{}");
-const isAdmin = user.value?.role === "admin" || user.role === "admin";
+// Check if role is strictly admin
+const isAdmin = computed(() => user.role === "admin");
+
+// --- State ---
+const staffList = ref([]);
 
 // Filters
 const filters = ref({
@@ -42,6 +46,7 @@ const filters = ref({
   start_date: "",
   end_date: "",
   category_id: "",
+  staff_id: "",
 });
 
 // Pagination
@@ -69,6 +74,7 @@ const categoryForm = ref({ name: "" });
 // --- Helpers ---
 const getImageUrl = (path) => {
   if (!path) return null;
+  // Adjust base URL if needed
   return `http://localhost:8000/storage/${path}`;
 };
 
@@ -84,6 +90,7 @@ const fetchExpenses = async (page = 1) => {
       start_date: filters.value.start_date,
       end_date: filters.value.end_date,
       category_id: filters.value.category_id,
+      staff_id: filters.value.staff_id,
     };
 
     const response = await axios.get("/expenses", { params });
@@ -99,6 +106,19 @@ const fetchExpenses = async (page = 1) => {
     console.error("Error fetching expenses:", error);
   } finally {
     loading.value = false;
+  }
+};
+
+//Fetch Users (Staff List)
+const fetchStaffList = async () => {
+  if (!isAdmin.value) return;
+  try {
+    const response = await axios.get("/users");
+    if (response.data.status) {
+      staffList.value = response.data.data.data || response.data.data;
+    }
+  } catch (error) {
+    console.error("Error fetching staff:", error);
   }
 };
 
@@ -118,9 +138,17 @@ const fetchCategories = async () => {
 const handleFileChange = (event) => {
   const file = event.target.files[0];
   if (file) {
-    // Validate size (e.g., max 2MB)
+    // Validate size (max 2MB)
     if (file.size > 2 * 1024 * 1024) {
-      Swal.fire("Error", "File size must be less than 2MB", "error");
+      Swal.fire({
+        icon: "error",
+        title: "File too large",
+        text: "File size must be less than 2MB",
+        toast: true,
+        position: "top-end",
+        showConfirmButton: false,
+        timer: 3000,
+      });
       return;
     }
     form.value.attachment = file;
@@ -140,7 +168,15 @@ const saveExpense = async () => {
     !form.value.amount ||
     !form.value.date
   ) {
-    Swal.fire("Error", "Please fill in all required fields", "error");
+    Swal.fire({
+      icon: "warning",
+      title: "Missing Information",
+      text: "Please fill in all required fields (*)",
+      toast: true,
+      position: "top-end",
+      showConfirmButton: false,
+      timer: 3000,
+    });
     return;
   }
 
@@ -175,7 +211,8 @@ const saveExpense = async () => {
     if (response.data.status) {
       Swal.fire({
         icon: "success",
-        title: isEditing.value ? "Updated!" : "Saved!",
+        title: isEditing.value ? "Expense Updated!" : "Expense Added!",
+        text: "Record saved successfully.",
         toast: true,
         position: "top-end",
         timer: 2000,
@@ -185,17 +222,21 @@ const saveExpense = async () => {
       fetchExpenses();
     }
   } catch (error) {
-    Swal.fire(
-      "Error",
-      error.response?.data?.message || "Failed to process",
-      "error",
-    );
+    Swal.fire({
+      icon: "error",
+      title: "Error",
+      text: error.response?.data?.message || "Failed to process request",
+      toast: true,
+      position: "top-end",
+      timer: 3000,
+      showConfirmButton: false,
+    });
   } finally {
     submitting.value = false;
   }
 };
 
-// 5. Save New Category (Quick Add)
+// 5. Save New Category (Quick Add) - ADMIN ONLY
 const saveCategory = async () => {
   if (!categoryForm.value.name) return;
   try {
@@ -203,7 +244,7 @@ const saveCategory = async () => {
     if (res.data.status) {
       Swal.fire({
         icon: "success",
-        title: "Category Created",
+        title: "Category Created!",
         toast: true,
         position: "top-end",
         timer: 1500,
@@ -214,11 +255,18 @@ const saveCategory = async () => {
       showCategoryModal.value = false;
     }
   } catch (error) {
-    Swal.fire("Error", "Failed to create category", "error");
+    Swal.fire({
+      icon: "error",
+      title: "Failed",
+      text: error.response?.data?.message || "Failed to create category",
+      toast: true,
+      position: "top-end",
+      timer: 3000,
+    });
   }
 };
 
-// 6. Delete Expense
+// 6. Delete Expense - ADMIN ONLY
 const deleteExpense = async (id) => {
   const result = await Swal.fire({
     title: "Are you sure?",
@@ -235,6 +283,7 @@ const deleteExpense = async (id) => {
       Swal.fire({
         icon: "success",
         title: "Deleted!",
+        text: "Expense record has been removed.",
         toast: true,
         position: "top-end",
         timer: 1500,
@@ -288,7 +337,13 @@ const closeModal = () => {
 };
 
 const resetFilters = () => {
-  filters.value = { search: "", start_date: "", end_date: "", category_id: "" };
+  filters.value = {
+    search: "",
+    start_date: "",
+    end_date: "",
+    category_id: "",
+    staff_id: "",
+  };
   fetchExpenses();
 };
 
@@ -308,6 +363,7 @@ watch(
 onMounted(() => {
   fetchExpenses();
   fetchCategories();
+  if (isAdmin.value) fetchStaffList();
 });
 </script>
 
@@ -327,7 +383,8 @@ onMounted(() => {
           Track and manage your business expenses.
         </p>
       </div>
-      <div class="flex gap-2">
+
+      <div class="flex flex-wrap items-center gap-2">
         <div
           class="hidden md:flex flex-col items-end px-4 border-r border-gray-300 mr-2"
         >
@@ -342,14 +399,14 @@ onMounted(() => {
         <button
           v-if="isAdmin"
           @click="router.push('/expense-categories')"
-          class="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg shadow-sm font-bold text-sm"
+          class="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg shadow-sm font-bold text-sm whitespace-nowrap"
         >
-          <Cog6ToothIcon class="w-5 h-5" /> Manage Categories
+          <Cog6ToothIcon class="w-5 h-5" /> Categories
         </button>
 
         <button
           @click="showModal = true"
-          class="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-md transition transform active:scale-95 font-bold"
+          class="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-md transition transform active:scale-95 font-bold whitespace-nowrap"
         >
           <PlusIcon class="w-5 h-5" /> Add Expense
         </button>
@@ -359,20 +416,27 @@ onMounted(() => {
     <div
       class="bg-white dark:bg-slate-900 p-4 rounded-xl border border-gray-200 dark:border-slate-800 shadow-sm"
     >
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div class="relative">
+      <div
+        class="grid grid-cols-1 gap-4"
+        :class="
+          isAdmin
+            ? 'lg:grid-cols-6 md:grid-cols-2'
+            : 'lg:grid-cols-5 md:grid-cols-2'
+        "
+      >
+        <div class="relative w-full">
           <MagnifyingGlassIcon
             class="absolute left-3 top-3 h-5 w-5 text-gray-400"
           />
           <input
             v-model="filters.search"
             type="text"
-            placeholder="Search description or ref..."
+            placeholder="Search..."
             class="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
           />
         </div>
 
-        <div class="relative">
+        <div class="relative w-full">
           <TagIcon class="absolute left-3 top-3 h-5 w-5 text-gray-400" />
           <select
             v-model="filters.category_id"
@@ -385,22 +449,35 @@ onMounted(() => {
           </select>
         </div>
 
-        <div class="flex gap-2">
+        <div v-if="isAdmin" class="relative w-full">
+          <UserIcon class="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+          <select
+            v-model="filters.staff_id"
+            class="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none appearance-none"
+          >
+            <option value="">All Staff</option>
+            <option v-for="user in staffList" :key="user.id" :value="user.id">
+              {{ user.name }}
+            </option>
+          </select>
+        </div>
+
+        <div class="flex gap-2 w-full lg:col-span-2">
           <input
             v-model="filters.start_date"
             type="date"
-            class="w-full px-3 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm outline-none"
+            class="w-1/2 px-3 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm outline-none"
           />
           <input
             v-model="filters.end_date"
             type="date"
-            class="w-full px-3 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm outline-none"
+            class="w-1/2 px-3 py-2.5 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm outline-none"
           />
         </div>
 
         <button
           @click="resetFilters"
-          class="flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 text-gray-600 hover:bg-gray-100 rounded-lg transition font-medium text-sm ml-3"
+          class="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-gray-300 text-gray-600 hover:bg-gray-100 rounded-lg transition font-medium text-sm"
         >
           <ArrowPathIcon class="w-4 h-4" /> Reset
         </button>
@@ -422,7 +499,7 @@ onMounted(() => {
               <th class="px-6 py-4">Description</th>
               <th class="px-6 py-4 text-right">Amount</th>
               <th class="px-6 py-4 text-center">Added By</th>
-              <th class="px-6 py-4 text-center">Actions</th>
+              <th v-if="isAdmin" class="px-6 py-4 text-center">Actions</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-slate-800 text-sm">
@@ -441,7 +518,7 @@ onMounted(() => {
               <td colspan="7" class="px-6 py-12 text-center text-gray-400">
                 <div class="flex flex-col items-center">
                   <DocumentTextIcon class="w-10 h-10 mb-2 opacity-50" />
-                  <p>No expenses found matching filters.</p>
+                  <p>No expenses found.</p>
                 </div>
               </td>
             </tr>
@@ -492,7 +569,8 @@ onMounted(() => {
               <td class="px-6 py-4 text-center text-xs text-gray-500">
                 {{ expense.creator?.name }}
               </td>
-              <td class="px-6 py-4 text-center">
+
+              <td v-if="isAdmin" class="px-6 py-4 text-center">
                 <div class="flex justify-center gap-2">
                   <button
                     @click="openEditModal(expense)"
@@ -503,7 +581,6 @@ onMounted(() => {
                   </button>
 
                   <button
-                    v-if="isAdmin"
                     @click="deleteExpense(expense.id)"
                     class="p-1.5 text-red-600 bg-red-50 hover:bg-red-100 rounded transition"
                     title="Delete Expense"
@@ -620,7 +697,9 @@ onMounted(() => {
                   {{ cat.name }}
                 </option>
               </select>
+
               <button
+                v-if="isAdmin"
                 @click="showCategoryModal = true"
                 class="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-indigo-600 font-bold text-xs border border-gray-200"
                 title="Add New Category"

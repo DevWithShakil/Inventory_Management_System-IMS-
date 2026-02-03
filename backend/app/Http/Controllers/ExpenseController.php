@@ -14,17 +14,24 @@ class ExpenseController extends Controller
 {
     public function index(Request $request)
     {
+        $user = $request->user();
         $query = Expense::with(['category', 'creator'])->latest();
-
-        if ($request->search) {
-            $query->where('reference_no', 'like', "%{$request->search}%")
-                  ->orWhere('description', 'like', "%{$request->search}%");
+        if ($user->role !== 'admin') {
+            $query->where('created_by', $user->id);
         }
 
+        if ($user->role === 'admin' && $request->staff_id) {
+            $query->where('created_by', $request->staff_id);
+        }
+        if ($request->search) {
+            $query->where(function($q) use ($request) {
+                $q->where('reference_no', 'like', "%{$request->search}%")
+                  ->orWhere('description', 'like', "%{$request->search}%");
+            });
+        }
         if ($request->start_date && $request->end_date) {
             $query->whereBetween('date', [$request->start_date, $request->end_date]);
         }
-
         if ($request->category_id) {
             $query->where('expense_category_id', $request->category_id);
         }

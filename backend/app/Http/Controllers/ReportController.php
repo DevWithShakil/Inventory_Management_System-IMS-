@@ -24,20 +24,18 @@ class ReportController extends Controller
         try {
             $user = auth()->user();
             $range = $request->query('range', 'today');
-
-            // --- 1. Date Logic & Chart Resolution ---
-            $chartResolution = 'day'; // Default
+            $chartResolution = 'day';
 
             switch ($range) {
                 case 'today':
                     $startDate = Carbon::today();
                     $endDate = Carbon::today()->endOfDay();
-                    $chartResolution = 'hour'; // 🔥 Fix: Today needs hourly chart
+                    $chartResolution = 'hour';
                     break;
                 case 'yesterday':
                     $startDate = Carbon::yesterday();
                     $endDate = Carbon::yesterday()->endOfDay();
-                    $chartResolution = 'hour'; // 🔥 Fix: Yesterday needs hourly chart
+                    $chartResolution = 'hour';
                     break;
                 case 'last_7_days':
                     $startDate = Carbon::now()->subDays(6)->startOfDay();
@@ -69,15 +67,11 @@ class ReportController extends Controller
             $startStr = $startDate->format('Y-m-d H:i:s');
             $endStr = $endDate->format('Y-m-d H:i:s');
 
-            // --- 2. Query Builder ---
-
             $salesQuery = Sale::query();
             $refundQuery = SalesReturn::query();
 
-            // Date Filtering
+
             if ($range === 'today' || $range === 'yesterday') {
-                // For hourly charts, we need precise timestamps, so we use created_at where possible
-                // But generally filtering by 'date' column is safer for reports if your date column stores Y-m-d only
                 $salesQuery->whereDate('date', $startDate->format('Y-m-d'));
                 $refundQuery->whereDate('created_at', $startDate->format('Y-m-d'));
             } else {
@@ -85,7 +79,6 @@ class ReportController extends Controller
                 $refundQuery->whereBetween('date', [$startStr, $endStr]);
             }
 
-            // 🔥 STAFF FILTER LOGIC
             if ($user->role === 'staff') {
                 $salesQuery->where('created_by', $user->id);
                 $refundQuery->whereHas('sale', function($q) use ($user) {
@@ -93,7 +86,6 @@ class ReportController extends Controller
                 });
             }
 
-            // --- 3. Metrics Calculation ---
 
             $grossSales = (clone $salesQuery)->sum('grand_total');
             $totalDiscount = (clone $salesQuery)->sum('discount');
@@ -208,7 +200,7 @@ class ReportController extends Controller
         }
     }
 
-    // 🔥 Helper for Chart Optimization (Handles Hour/Day/Month)
+    // Helper for Chart Optimization (Handles Hour/Day/Month)
     private function getOptimizedChartData($salesQueryBase, $refundQueryBase, $startDate, $endDate, $resolution)
     {
         $salesQuery = clone $salesQueryBase;
@@ -216,10 +208,10 @@ class ReportController extends Controller
         $driver = DB::connection()->getDriverName();
 
         // --- 1. Define Format Strings based on Resolution & Driver ---
-        $dateColumn = 'date'; // Default column for grouping
+        $dateColumn = 'date';
 
         if ($resolution === 'hour') {
-            // 🔥 IMPORTANT: For hourly charts, we MUST use 'created_at' because 'date' usually has 00:00:00
+            // IMPORTANT: For hourly charts, we MUST use 'created_at' because 'date' usually has 00:00:00
             $dateColumn = 'created_at';
 
             if ($driver === 'pgsql') {
@@ -272,8 +264,8 @@ class ReportController extends Controller
         if ($resolution === 'hour') {
             // Loop 00 to 23
             for ($i = 0; $i < 24; $i++) {
-                $label = str_pad($i, 2, '0', STR_PAD_LEFT); // "09", "10"
-                $categories[] = Carbon::createFromTime($i, 0)->format('h A'); // "09 AM"
+                $label = str_pad($i, 2, '0', STR_PAD_LEFT);
+                $categories[] = Carbon::createFromTime($i, 0)->format('h A');
 
                 $gross = $salesData[$label] ?? 0;
                 $refund = $refundData[$label] ?? 0;

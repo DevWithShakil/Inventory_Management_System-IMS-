@@ -32,6 +32,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
     Route::post('/profile/update', [AuthController::class, 'updateProfile']);
 
+    // user-update
+    Route::put('/users/{id}', [UserController::class, 'update']);
+
     // --- SHARED ROUTES (Access for Admin & Staff) ---
 
     // 1. Dashboard & Reports
@@ -67,9 +70,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // 8. Expense Management (Shared Access)
     Route::get('/expenses', [ExpenseController::class, 'index']);
     Route::post('/expenses', [ExpenseController::class, 'store']);
-    Route::put('/expenses/{id}', [ExpenseController::class, 'update']);
     Route::get('/expense-categories', [ExpenseController::class, 'categories']);
-    Route::post('/expense-categories', [ExpenseController::class, 'storeCategory']);
+
 
     // 9. Transaction / Payment Routes
     Route::get('/transactions', [TransactionController::class, 'index']);
@@ -77,7 +79,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/transactions/{trx_id}', [TransactionController::class, 'show']);
 
 
-    // --- 🔒 ADMIN ONLY ROUTES ---
+    // --- ADMIN ONLY ROUTES ---
     Route::middleware('role:admin')->group(function () {
 
         // Inventory Management (CRUD)
@@ -91,6 +93,8 @@ Route::middleware('auth:sanctum')->group(function () {
         // Expense Management (Admin Only Actions)
         Route::put('/expense-categories/{id}', [ExpenseController::class, 'updateCategory']);
         Route::delete('/expenses/{id}', [ExpenseController::class, 'destroy']);
+        Route::put('/expenses/{id}', [ExpenseController::class, 'update']);
+        Route::post('/expense-categories', [ExpenseController::class, 'storeCategory']);
 
         // Reports (Specific Reports)
         Route::get('/reports/daily-sales', [ReportController::class, 'dailySalesReport']);
@@ -103,6 +107,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // User Management
         Route::apiResource('users', UserController::class);
+
+        // User Activity
+        Route::get('/users/{id}/performance', [UserController::class, 'staffPerformance']);
 
         // Import Products
         Route::post('/products/import', [ProductController::class, 'import']);

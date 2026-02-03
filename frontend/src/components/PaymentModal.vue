@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick } from "vue";
+import Swal from "sweetalert2"; // Alert এর জন্য
 import {
   XMarkIcon,
   BanknotesIcon,
@@ -13,6 +14,7 @@ const props = defineProps({
   isOpen: Boolean,
   totalAmount: Number,
   customer: Object,
+  isWalkIn: Boolean, // 🔥 NEW PROP: Walk-in Check
 });
 
 const emit = defineEmits(["close", "submit-payment"]);
@@ -24,7 +26,8 @@ const note = ref("");
 const amountInput = ref(null);
 
 watch(paymentMethod, (newMethod) => {
-  if (newMethod !== "cash") {
+  // ক্যাশ ছাড়া অন্য মেথড বা Walk-in হলে ফুল পেমেন্ট সেট হবে
+  if (newMethod !== "cash" || props.isWalkIn) {
     receivedAmount.value = props.totalAmount;
   }
 });
@@ -39,7 +42,10 @@ watch(
       note.value = "";
 
       nextTick(() => {
-        if (amountInput.value) amountInput.value.select();
+        // Walk-in হলে ইনপুটে ফোকাস দরকার নেই, কারণ এডিট করা যাবে না
+        if (!props.isWalkIn && amountInput.value) {
+          amountInput.value.select();
+        }
       });
     }
   },
@@ -54,6 +60,10 @@ const changeAmount = computed(() => {
 
 const dueAmount = computed(() => {
   if (paymentMethod.value !== "cash") return 0;
+
+  // Walk-in হলে ডিউ ০ হবে
+  if (props.isWalkIn) return 0;
+
   const due = props.totalAmount - receivedAmount.value;
   return due > 0 ? due : 0;
 });
@@ -61,6 +71,18 @@ const dueAmount = computed(() => {
 // --- Action ---
 const handleConfirm = () => {
   if (receivedAmount.value < 0) return;
+
+  // 🔥 Walk-in Check: Partial Payment Block
+  if (props.isWalkIn && receivedAmount.value < props.totalAmount) {
+    Swal.fire({
+      icon: "warning",
+      title: "Full Payment Required",
+      text: "Walk-in customers cannot have due amounts.",
+    });
+    // Reset to full amount
+    receivedAmount.value = props.totalAmount;
+    return;
+  }
 
   emit("submit-payment", {
     payment_method: paymentMethod.value,
@@ -92,6 +114,11 @@ const handleConfirm = () => {
             <span class="font-bold text-indigo-600">{{
               customer?.name || "Walk-in Customer"
             }}</span>
+            <span
+              v-if="isWalkIn"
+              class="ml-2 px-2 py-0.5 bg-orange-100 text-orange-600 text-[10px] font-bold rounded-full border border-orange-200"
+              >No Due Allowed</span
+            >
           </p>
         </div>
         <button
@@ -179,12 +206,15 @@ const handleConfirm = () => {
                 ref="amountInput"
                 v-model.number="receivedAmount"
                 type="number"
-                :disabled="paymentMethod !== 'cash'"
-                class="w-full pl-8 pr-4 py-2 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-gray-900 dark:text-white disabled:bg-gray-100 disabled:text-gray-500"
+                :disabled="paymentMethod !== 'cash' || isWalkIn"
+                class="w-full pl-8 pr-4 py-2 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-gray-900 dark:text-white disabled:bg-gray-100 disabled:text-gray-500 disabled:cursor-not-allowed"
                 @focus="$event.target.select()"
                 @keyup.enter="handleConfirm"
               />
             </div>
+            <p v-if="isWalkIn" class="text-[10px] text-orange-600 mt-1">
+              * Full payment required for Walk-in.
+            </p>
           </div>
 
           <div v-if="paymentMethod === 'cash'">

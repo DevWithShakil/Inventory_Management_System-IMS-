@@ -1048,6 +1048,7 @@ onUnmounted(() => {
       :isOpen="showPaymentModal"
       :totalAmount="grandTotal"
       :customer="currentCustomerData"
+      :isWalkIn="!selectedCustomer || selectedCustomer === 'walk-in'"
       @close="showPaymentModal = false"
       @submit-payment="processSale"
     />
