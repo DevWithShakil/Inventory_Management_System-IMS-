@@ -26,7 +26,8 @@ const isSidebarOpen = ref(false);
 const isDark = ref(false);
 const isProfileOpen = ref(false);
 const isNotificationOpen = ref(false);
-const user = ref(JSON.parse(localStorage.getItem("user") || "{}"));
+const user = ref(null); // Initially null for skeleton triggering
+const isLoading = ref(true); // Loading state
 
 // Search & Notification State
 const searchQuery = ref("");
@@ -41,17 +42,22 @@ const pageTitle = computed(() => {
 });
 
 // --- Theme & Event Logic ---
-onMounted(() => {
+onMounted(async () => {
   const savedTheme = localStorage.getItem("theme") || "light";
   isDark.value = savedTheme === "dark";
   document.documentElement.classList.toggle("dark", isDark.value);
 
   document.addEventListener("click", closeDropdowns);
 
-  // Initial Fetch
-  fetchNotifications();
+  // Load User & Notifications
+  updateUserFromStorage();
+  await fetchNotifications();
 
-  // Listen for storage changes
+  // Fake delay to show skeleton (remove in production if fast)
+  setTimeout(() => {
+    isLoading.value = false;
+  }, 800);
+
   window.addEventListener("storage", updateUserFromStorage);
   window.addEventListener("user-profile-updated", updateUserFromStorage);
 });
@@ -63,7 +69,10 @@ onUnmounted(() => {
 });
 
 const updateUserFromStorage = () => {
-  user.value = JSON.parse(localStorage.getItem("user") || "{}");
+  const storedUser = localStorage.getItem("user");
+  if (storedUser) {
+    user.value = JSON.parse(storedUser);
+  }
 };
 
 const toggleTheme = () => {
@@ -202,7 +211,12 @@ const getImageUrl = (path) => {
         </div>
 
         <div class="flex items-center gap-3 sm:gap-5">
-          <div class="hidden md:block relative z-50 group">
+          <div
+            v-if="isLoading"
+            class="hidden md:block w-[240px] h-10 bg-gray-200 dark:bg-slate-800 rounded-full animate-pulse"
+          ></div>
+
+          <div v-else class="hidden md:block relative z-50 group">
             <div
               class="flex items-center bg-gray-50 dark:bg-slate-800/50 rounded-full px-4 py-2 border border-gray-200 dark:border-slate-700 focus-within:border-indigo-500/50 focus-within:ring-4 ring-indigo-500/10 focus-within:bg-white dark:focus-within:bg-slate-800 transition-all duration-300 w-[240px] focus-within:w-[320px]"
             >
@@ -296,15 +310,14 @@ const getImageUrl = (path) => {
             >
               <BellIcon class="w-5 h-5" />
               <span
-                v-if="unreadCount > 0"
+                v-if="!isLoading && unreadCount > 0"
                 class="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 animate-ping"
               ></span>
               <span
-                v-if="unreadCount > 0"
+                v-if="!isLoading && unreadCount > 0"
                 class="absolute top-2 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-900"
               ></span>
             </button>
-
             <transition name="dropdown">
               <div
                 v-if="isNotificationOpen"
@@ -375,7 +388,21 @@ const getImageUrl = (path) => {
             class="h-8 w-[1px] bg-gray-200 dark:bg-slate-700 hidden sm:block"
           ></div>
 
-          <div class="relative">
+          <div v-if="isLoading" class="flex items-center gap-3">
+            <div
+              class="w-9 h-9 bg-gray-200 dark:bg-slate-800 rounded-full animate-pulse"
+            ></div>
+            <div class="hidden md:flex flex-col gap-1">
+              <div
+                class="h-3 w-20 bg-gray-200 dark:bg-slate-800 rounded animate-pulse"
+              ></div>
+              <div
+                class="h-2 w-12 bg-gray-200 dark:bg-slate-800 rounded animate-pulse"
+              ></div>
+            </div>
+          </div>
+
+          <div v-else class="relative">
             <button
               @click="toggleProfile"
               class="flex items-center gap-3 p-1 pl-1 pr-3 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 border border-transparent hover:border-gray-200 dark:hover:border-slate-700 transition-all duration-300 group"
@@ -384,21 +411,21 @@ const getImageUrl = (path) => {
                 class="w-9 h-9 rounded-full overflow-hidden shadow-sm ring-2 ring-white dark:ring-slate-900 bg-indigo-50 dark:bg-slate-700 flex items-center justify-center text-indigo-600 dark:text-indigo-300 font-bold text-sm"
               >
                 <img
-                  v-if="user.avatar"
+                  v-if="user?.avatar"
                   :src="getImageUrl(user.avatar)"
                   class="w-full h-full object-cover"
                 />
-                <span v-else>{{ user.name?.charAt(0).toUpperCase() }}</span>
+                <span v-else>{{ user?.name?.charAt(0).toUpperCase() }}</span>
               </div>
 
               <div class="hidden md:block text-left leading-tight">
                 <p
                   class="text-xs font-bold text-slate-700 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors"
                 >
-                  {{ user.name }}
+                  {{ user?.name }}
                 </p>
                 <p class="text-[10px] text-slate-500 capitalize font-medium">
-                  {{ user.role }}
+                  {{ user?.role }}
                 </p>
               </div>
               <ChevronDownIcon
@@ -423,7 +450,7 @@ const getImageUrl = (path) => {
                   <p
                     class="text-sm font-bold text-slate-800 dark:text-white truncate"
                   >
-                    {{ user.email }}
+                    {{ user?.email }}
                   </p>
                 </div>
 
@@ -440,7 +467,7 @@ const getImageUrl = (path) => {
                   </router-link>
 
                   <router-link
-                    v-if="user.role === 'admin'"
+                    v-if="user?.role === 'admin'"
                     to="/settings"
                     @click="isProfileOpen = false"
                     class="flex items-center px-3 py-2.5 text-sm font-medium text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-white hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-xl transition-all group"

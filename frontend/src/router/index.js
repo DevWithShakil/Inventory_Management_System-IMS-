@@ -23,7 +23,7 @@ const routes = [
         path: '/',
         name: 'Login',
         component: Login,
-        meta: { guest: true }
+        meta: { guest: true, title: 'Login' }
     },
     {
         path: '/',
@@ -33,93 +33,99 @@ const routes = [
             {
                 path: 'dashboard',
                 name: 'Dashboard',
-                component: Dashboard
+                component: Dashboard,
+                meta: { title: 'Dashboard' }
             },
             {
                 path: '/sales',
                 name: 'SalesList',
-                component: SalesList
+                component: SalesList,
+                meta: { title: 'Sales History' }
             },
             {
                 path: '/pos',
                 name: 'PosConsole',
-                component: PoseConsole
+                component: PoseConsole,
+                meta: { title: 'POS Terminal' }
             },
             {
                 path: '/inventory',
                 name: 'Inventory',
-                component: Inventory
+                component: Inventory,
+                meta: { title: 'Inventory Management' }
             },
             {
                 path: '/customers',
                 name: 'Customers',
-                component: Customers
+                component: Customers,
+                meta: { title: 'Customer List' }
             },
             {
                 path: '/settings',
                 name: 'Settings',
-                component: Settings
+                component: Settings,
+                meta: { title: 'System Settings' }
             },
-
             {
                 path: '/attributes',
                 name: 'attributes',
-                component: Attributes
+                component: Attributes,
+                meta: { title: 'Product Attributes' }
             },
             {
                 path: '/suppliers',
                 name: 'suppliers',
-                component: Suppliers
+                component: Suppliers,
+                meta: { title: 'Supplier Management' }
             },
             {
                 path: '/purchases',
                 name: 'purchases',
-                component: Purchases
+                component: Purchases,
+                meta: { title: 'Purchase History' }
             },
-
             {
                 path: '/purchases/create',
                 name: 'purchase-create',
-                component: PurchaseCreate
+                component: PurchaseCreate,
+                meta: { title: 'New Purchase' }
             },
-
             {
                 path: '/profile',
                 name: 'user_profile',
                 component: Profile,
-                meta: { requiresAuth: true }
+                meta: { requiresAuth: true, title: 'My Profile' }
             },
-
             {
                 path: '/users',
                 name: 'users',
                 component: Users,
-                meta: { requiresAuth: true, role: 'admin' }
+                meta: { requiresAuth: true, role: 'admin', title: 'Staff Management' }
             },
             {
                 path: '/coupons',
                 name: 'coupons',
                 component: Coupons,
-                meta: { requiresAuth: true, role: 'admin' }
+                meta: { requiresAuth: true, role: 'admin', title: 'Coupons & Offers' }
             },
-
             {
                 path: '/expenses',
                 name: 'expenses',
                 component: ExpenseList,
+                meta: { title: 'Expense Manager' }
             },
             {
                 path: '/expense-categories',
                 name: 'expense-categories',
                 component: ExpenseCategories,
+                meta: { title: 'Expense Categories' }
             },
-
             {
                 path: '/barcode',
                 name: 'BarcodeGenerator',
-                component: BarcodeGenerator
+                component: BarcodeGenerator,
+                meta: { title: 'Barcode Generator' }
             }
-
         ]
     },
 ];
@@ -130,12 +136,12 @@ const router = createRouter({
 })
 
 router.beforeEach((to, from, next) => {
+    const appName = 'Smart IMS';
+    document.title = to.meta.title ? `${to.meta.title} | ${appName}` : appName;
     const token = localStorage.getItem('token');
-
     if (to.meta.requiresAuth && !token) {
         next('/');
     } else if (to.meta.guest && token) {
-
         next('/dashboard');
     } else {
         next();

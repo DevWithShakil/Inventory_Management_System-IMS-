@@ -132,7 +132,7 @@ const menuItems = computed(() => {
           name: "Inventory",
           icon: CubeIcon,
           roles: ["admin", "staff"],
-          colorTheme: "amber", // Orange/Amber for products
+          colorTheme: "amber",
           children: [
             {
               name: "Product List",
@@ -355,27 +355,49 @@ watch(
         class="flex items-center gap-3 group relative z-10"
       >
         <div
-          class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center group-hover:scale-105 transition-transform duration-300 shadow-sm"
+          v-if="!settings"
+          class="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-800 animate-pulse"
+        ></div>
+
+        <div
+          v-else
+          class="w-10 h-10 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform duration-300 shadow-sm overflow-hidden"
+          :class="
+            settings?.logo
+              ? 'bg-transparent'
+              : 'bg-gradient-to-tr from-indigo-600 to-violet-500'
+          "
         >
           <img
             v-if="settings?.logo"
             :src="getImageUrl(settings.logo)"
             alt="Logo"
-            class="h-8 w-auto object-contain brightness-0 invert"
+            class="w-full h-full object-contain"
           />
-          <span v-else class="text-white font-black text-xl">S</span>
+          <span v-else class="text-white font-black text-xl">
+            {{
+              settings?.company_name
+                ? settings.company_name.charAt(0).toUpperCase()
+                : "S"
+            }}
+          </span>
         </div>
 
-        <div class="flex flex-col">
+        <div v-if="!settings" class="flex flex-col gap-1.5">
+          <div
+            class="h-4 w-32 bg-gray-200 dark:bg-slate-800 rounded animate-pulse"
+          ></div>
+          <div
+            class="h-2 w-20 bg-gray-200 dark:bg-slate-800 rounded animate-pulse"
+          ></div>
+        </div>
+
+        <div v-else class="flex flex-col">
           <h1
             class="text-lg font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-900 to-gray-700 dark:from-white dark:to-gray-300 tracking-tight leading-none"
           >
             {{ settings?.company_name || "Smart IMS" }}
           </h1>
-          <span
-            class="text-[10px] text-indigo-500/80 dark:text-indigo-400/80 font-bold tracking-wider uppercase mt-0.5"
-            >Management Panel</span
-          >
         </div>
       </router-link>
 
